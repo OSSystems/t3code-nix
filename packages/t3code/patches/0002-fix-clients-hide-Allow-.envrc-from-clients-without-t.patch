@@ -1,0 +1,78 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Otavio Salvador <otavio@ossystems.com.br>
+Date: Sun, 11 Oct 2026 22:52:05 -0300
+Subject: [PATCH] fix(clients): hide Allow .envrc from clients without the
+ operate grant
+
+Allowing a project's .envrc is guarded by the orchestration operate grant,
+but the web and mobile buttons showed for every client, so a read-only
+session only learned it couldn't act after clicking. The buttons now read
+the command's permission for the thread's environment and stay hidden
+without the grant; the warning itself still shows.
+---
+ .../src/features/threads/thread-work-log.tsx    |  3 +++
+ .../src/components/chat/MessagesTimeline.tsx    |  5 +++++
+ .../src/state/commandPermissions.test.ts        | 17 +++++++++++++++++
+ 3 files changed, 25 insertions(+)
+
+diff --git a/apps/mobile/src/features/threads/thread-work-log.tsx b/apps/mobile/src/features/threads/thread-work-log.tsx
+index e7a6a217d8..ef3c351aac 100644
+--- a/apps/mobile/src/features/threads/thread-work-log.tsx
++++ b/apps/mobile/src/features/threads/thread-work-log.tsx
+@@ -870,6 +870,9 @@ function AllowDirenvButton(props: {
+   const [state, setState] = useState<"idle" | "pending" | "allowed">(() =>
+     allowedDirenvWarnings.has(props.warningId) ? "allowed" : "idle",
+   );
++  // Clients without the operate grant can read the warning but not act on it.
++  const permitted = useAtomValue(threadEnvironment.allowDirenv.permissionAtom(props.environmentId));
++  if (!permitted) return null;
+   return (
+     <Pressable
+       accessibilityRole="button"
+diff --git a/apps/web/src/components/chat/MessagesTimeline.tsx b/apps/web/src/components/chat/MessagesTimeline.tsx
+index 4963fa195c..e41e22df36 100644
+--- a/apps/web/src/components/chat/MessagesTimeline.tsx
++++ b/apps/web/src/components/chat/MessagesTimeline.tsx
+@@ -5311,6 +5311,11 @@ function AllowDirenvButton({
+   const [state, setState] = useState<"idle" | "pending" | "allowed">(() =>
+     allowedDirenvWarnings.has(warningId) ? "allowed" : "idle",
+   );
++  // Clients without the operate grant can read the warning but not act on it.
++  const permitted = useAtomValue(
++    threadEnvironment.allowDirenv.permissionAtom(threadRef.environmentId),
++  );
++  if (!permitted) return null;
+   const onClick = async (event: MouseEvent<HTMLButtonElement>) => {
+     event.stopPropagation();
+     setState("pending");
+diff --git a/packages/client-runtime/src/state/commandPermissions.test.ts b/packages/client-runtime/src/state/commandPermissions.test.ts
+index b285798033..0377c606a6 100644
+--- a/packages/client-runtime/src/state/commandPermissions.test.ts
++++ b/packages/client-runtime/src/state/commandPermissions.test.ts
+@@ -137,6 +137,23 @@ describe("command permissions", () => {
+     ),
+   );
+ 
++  it.effect("requires the destination operate grant to allow a project's .envrc", () =>
++    Effect.scoped(
++      Effect.gen(function* () {
++        const registry = yield* setup;
++        const allow = createCommandPermissions(runtime, WS_METHODS.projectEnvironmentAllowDirenv);
++        registry.set(sessions(env), AsyncResult.success(grant(false)));
++        expect(registry.get(allow.permissionAtom(env))).toBe(false);
++        expect((yield* allow.authorize(registry, env).pipe(Effect.flip))._tag).toBe(
++          "EnvironmentAuthorizationError",
++        );
++        registry.set(sessions(env), AsyncResult.success(grant(true)));
++        expect(registry.get(allow.permissionAtom(env))).toBe(true);
++        yield* allow.authorize(registry, env);
++      }),
++    ),
++  );
++
+   it.effect("uses the target grant for both availability and execution", () =>
+     Effect.scoped(
+       Effect.gen(function* () {
+-- 
+2.55.0
+
