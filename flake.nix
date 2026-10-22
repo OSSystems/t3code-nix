@@ -34,6 +34,8 @@
     {
       overlays.default = callPackages;
 
+      homeManagerModules.default = import ./modules/home-manager.nix self;
+
       packages = forAllSystems (
         pkgs:
         callPackages pkgs pkgs
