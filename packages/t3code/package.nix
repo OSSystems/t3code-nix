@@ -2,19 +2,20 @@
   lib,
   fetchFromGitHub,
   fetchPnpmDeps,
-  pnpm_11,
+  nodejs_26,
+  pnpm_12,
   rustPlatform,
   t3code,
 }:
 
 let
-  version = "0.1.1";
+  version = "0.1.2";
 
   src = fetchFromGitHub {
     owner = "pingdotgg";
     repo = "t3code";
     tag = "v${version}";
-    hash = "sha256-kIGiC/uCDgRlqt+8/zZ9K48NBuCGJ1TgqW+rpdZgZUQ=";
+    hash = "sha256-C5l7541kanlsukhswrAEu8GFpr/YpWDnofJ5dlg7+LM=";
   };
 
   patches = [
@@ -22,24 +23,29 @@ let
     ./patches/0002-fix-clients-hide-Allow-.envrc-from-clients-without-t.patch
   ];
 
-  unwrapped = t3code.unwrapped.overrideAttrs (
-    finalAttrs: _: {
-      inherit version src patches;
+  unwrapped =
+    (t3code.unwrapped.override {
+      nodejs = nodejs_26;
+      pnpm_11 = pnpm_12;
+    }).overrideAttrs
+      (
+        finalAttrs: _: {
+          inherit version src patches;
 
-      pnpmDeps = fetchPnpmDeps {
-        pnpm = pnpm_11;
-        inherit (finalAttrs)
-          pname
-          version
-          src
-          patches
-          pnpmWorkspaces
-          ;
-        fetcherVersion = 4;
-        hash = "sha256-witoens1UicKE+SIQCrRk9YtbAVIW5x+2MqDrFh4F0s=";
-      };
-    }
-  );
+          pnpmDeps = fetchPnpmDeps {
+            pnpm = pnpm_12;
+            inherit (finalAttrs)
+              pname
+              version
+              src
+              patches
+              pnpmWorkspaces
+              ;
+            fetcherVersion = 4;
+            hash = "sha256-ghijoQR/74bSYiR8roQ3JV3sCT4WLHiuU+uY8j+1j5k=";
+          };
+        }
+      );
 
   resourceMonitor = t3code.resourceMonitor.overrideAttrs {
     inherit version src;
