@@ -42,6 +42,20 @@
         }
       );
 
+      nixosModules = {
+        t3code-os =
+          { lib, pkgs, ... }:
+          {
+            imports = [ ./modules/nixos/t3code-os.nix ];
+            services.t3code-os.package = lib.mkDefault self.packages.${pkgs.stdenv.hostPlatform.system}.t3code;
+          };
+        default = self.nixosModules.t3code-os;
+      };
+
+      checks = forAllSystems (pkgs: {
+        t3code-os = pkgs.testers.runNixOSTest (import ./checks/t3code-os.nix { inherit self; });
+      });
+
       formatter = forAllSystems (pkgs: pkgs.nixfmt-tree);
     };
 }
