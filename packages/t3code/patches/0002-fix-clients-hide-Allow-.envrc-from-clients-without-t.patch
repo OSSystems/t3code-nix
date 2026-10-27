@@ -1,4 +1,4 @@
-From 4bfc2d95684d144235188573704462505c0e1831 Mon Sep 17 00:00:00 2001
+From 6600b41318c7457b18c6e3bc2ad40ae173b316ca Mon Sep 17 00:00:00 2001
 From: Otavio Salvador <otavio@ossystems.com.br>
 Date: Sun, 11 Oct 2026 22:52:05 -0300
 Subject: [PATCH 2/2] fix(clients): hide Allow .envrc from clients without the
@@ -16,10 +16,10 @@ without the grant; the warning itself still shows.
  3 files changed, 26 insertions(+)
 
 diff --git a/apps/mobile/src/features/threads/thread-work-log.tsx b/apps/mobile/src/features/threads/thread-work-log.tsx
-index e511d4b84a..8ed74117dc 100644
+index d40e4d0..1333fee 100644
 --- a/apps/mobile/src/features/threads/thread-work-log.tsx
 +++ b/apps/mobile/src/features/threads/thread-work-log.tsx
-@@ -884,6 +884,9 @@ function AllowDirenvButton(props: {
+@@ -865,6 +865,9 @@ function AllowDirenvButton(props: {
    const [state, setState] = useState<"idle" | "pending" | "allowed">(() =>
      allowedDirenvWarnings.has(props.warningId) ? "allowed" : "idle",
    );
@@ -30,7 +30,7 @@ index e511d4b84a..8ed74117dc 100644
      <Pressable
        accessibilityRole="button"
 diff --git a/apps/web/src/components/chat/TimelineWorkEntryRow.tsx b/apps/web/src/components/chat/TimelineWorkEntryRow.tsx
-index 3e2f28da2d..1064e5e429 100644
+index 8da1e73..0ac3385 100644
 --- a/apps/web/src/components/chat/TimelineWorkEntryRow.tsx
 +++ b/apps/web/src/components/chat/TimelineWorkEntryRow.tsx
 @@ -12,6 +12,7 @@ import {
@@ -54,7 +54,7 @@ index 3e2f28da2d..1064e5e429 100644
      event.stopPropagation();
      setState("pending");
 diff --git a/packages/client-runtime/src/state/commandPermissions.test.ts b/packages/client-runtime/src/state/commandPermissions.test.ts
-index 09927e3839..5e00ca861b 100644
+index 09927e3..5e00ca8 100644
 --- a/packages/client-runtime/src/state/commandPermissions.test.ts
 +++ b/packages/client-runtime/src/state/commandPermissions.test.ts
 @@ -115,6 +115,23 @@ describe("command permissions", () => {
