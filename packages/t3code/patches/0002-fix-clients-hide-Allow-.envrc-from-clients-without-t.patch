@@ -1,4 +1,4 @@
-From 6600b41318c7457b18c6e3bc2ad40ae173b316ca Mon Sep 17 00:00:00 2001
+From 6725e3da65dbf3f29144f5848c0c8306d9db2366 Mon Sep 17 00:00:00 2001
 From: Otavio Salvador <otavio@ossystems.com.br>
 Date: Sun, 11 Oct 2026 22:52:05 -0300
 Subject: [PATCH 2/2] fix(clients): hide Allow .envrc from clients without the
@@ -16,10 +16,10 @@ without the grant; the warning itself still shows.
  3 files changed, 26 insertions(+)
 
 diff --git a/apps/mobile/src/features/threads/thread-work-log.tsx b/apps/mobile/src/features/threads/thread-work-log.tsx
-index d40e4d0..1333fee 100644
+index d57b63a059..6c852065d9 100644
 --- a/apps/mobile/src/features/threads/thread-work-log.tsx
 +++ b/apps/mobile/src/features/threads/thread-work-log.tsx
-@@ -865,6 +865,9 @@ function AllowDirenvButton(props: {
+@@ -868,6 +868,9 @@ function AllowDirenvButton(props: {
    const [state, setState] = useState<"idle" | "pending" | "allowed">(() =>
      allowedDirenvWarnings.has(props.warningId) ? "allowed" : "idle",
    );
@@ -30,10 +30,10 @@ index d40e4d0..1333fee 100644
      <Pressable
        accessibilityRole="button"
 diff --git a/apps/web/src/components/chat/TimelineWorkEntryRow.tsx b/apps/web/src/components/chat/TimelineWorkEntryRow.tsx
-index 8da1e73..0ac3385 100644
+index 0f5b53a434..c3fe8307da 100644
 --- a/apps/web/src/components/chat/TimelineWorkEntryRow.tsx
 +++ b/apps/web/src/components/chat/TimelineWorkEntryRow.tsx
-@@ -12,6 +12,7 @@ import {
+@@ -13,6 +13,7 @@ import {
    ThreadId,
  } from "@t3tools/contracts";
  import { scopeThreadRef } from "@t3tools/client-runtime/environment";
@@ -41,7 +41,7 @@ index 8da1e73..0ac3385 100644
  import { Link } from "@tanstack/react-router";
  import { notificationChildThreadId } from "@t3tools/client-runtime/state/thread-execution";
  import {
-@@ -159,6 +160,11 @@ function AllowDirenvButton({
+@@ -160,6 +161,11 @@ function AllowDirenvButton({
    const [state, setState] = useState<"idle" | "pending" | "allowed">(() =>
      allowedDirenvWarnings.has(warningId) ? "allowed" : "idle",
    );
@@ -54,10 +54,10 @@ index 8da1e73..0ac3385 100644
      event.stopPropagation();
      setState("pending");
 diff --git a/packages/client-runtime/src/state/commandPermissions.test.ts b/packages/client-runtime/src/state/commandPermissions.test.ts
-index 09927e3..5e00ca8 100644
+index adfad46a41..8af0f3cf63 100644
 --- a/packages/client-runtime/src/state/commandPermissions.test.ts
 +++ b/packages/client-runtime/src/state/commandPermissions.test.ts
-@@ -115,6 +115,23 @@ describe("command permissions", () => {
+@@ -122,6 +122,23 @@ describe("command permissions", () => {
      ),
    );
  
@@ -78,6 +78,9 @@ index 09927e3..5e00ca8 100644
 +    ),
 +  );
 +
-   it.effect("uses the target grant for both availability and execution", () =>
+   it.effect("requires the destination settings grant to check OTLP endpoints", () =>
      Effect.scoped(
        Effect.gen(function* () {
+-- 
+2.56.0
+
