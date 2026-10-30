@@ -1,7 +1,7 @@
-From fddae9c81e552fae874126f6393ad1432a88288b Mon Sep 17 00:00:00 2001
+From 87c27cc530f24b7c8d747e14972dbe79001a43c4 Mon Sep 17 00:00:00 2001
 From: Otavio Salvador <otavio@ossystems.com.br>
-Date: Tue, 27 Oct 2026 12:01:59 -0300
-Subject: [PATCH 1/2] feat(server): agents start with the project's direnv
+Date: Sat, 26 Sep 2026 02:11:52 -0300
+Subject: [PATCH 01/11] feat(server): agents start with the project's direnv
  environment
 
 Projects that provide their toolchain through direnv (Nix dev shells, devenv, mise) only worked in
@@ -25,7 +25,6 @@ A blocked `.envrc` notice offers "Allow .envrc" on web and mobile, backed by a
 `projectEnvironment.allowDirenv` RPC that resolves the directory from the thread. The behavior is
 on by default and can be turned off per environment or project with "Load direnv environment".
 ---
- .../SettingsServerControlsRouteScreen.tsx     |  10 +
  .../src/features/threads/thread-work-log.tsx  |  57 +++++
  apps/server/src/auth/RpcAuthorization.ts      |   1 +
  .../src/observability/RpcInstrumentation.ts   |   1 +
@@ -45,7 +44,6 @@ on by default and can be turned off per environment or project with "Load direnv
  apps/server/src/server.ts                     |   2 +
  apps/server/src/ws.ts                         |  34 +++
  .../components/chat/TimelineWorkEntryRow.tsx  |  63 ++++-
- .../components/settings/SettingsPanels.tsx    |  34 +++
  .../src/components/settings/settingsSearch.ts |   7 +
  apps/web/src/session-logic.ts                 |   5 +
  docs/user/project-settings.md                 |  21 ++
@@ -63,33 +61,12 @@ on by default and can be turned off per environment or project with "Load direnv
  packages/provider-grok/src/server/adapter.ts  |   5 +-
  .../provider-opencode/src/server/adapter.ts   |   6 +-
  packages/provider-pi/src/server/adapter.ts    |   6 +-
- 38 files changed, 1223 insertions(+), 18 deletions(-)
+ 36 files changed, 1179 insertions(+), 18 deletions(-)
  create mode 100644 apps/server/src/provider/DirenvEnvironment.test.ts
  create mode 100644 apps/server/src/provider/DirenvEnvironment.ts
  create mode 100644 packages/contracts/src/projectEnvironment.ts
  create mode 100644 packages/provider-core/src/server/direnvEnvironment.ts
 
-diff --git a/apps/mobile/src/features/settings/SettingsServerControlsRouteScreen.tsx b/apps/mobile/src/features/settings/SettingsServerControlsRouteScreen.tsx
-index 91b0b1b044..dad2532145 100644
---- a/apps/mobile/src/features/settings/SettingsServerControlsRouteScreen.tsx
-+++ b/apps/mobile/src/features/settings/SettingsServerControlsRouteScreen.tsx
-@@ -409,6 +409,16 @@ function ServerSettingsDetail(props: { readonly page: SettingsPage }) {
-                       onValueChange={(value) => write({ defaultAutoPull: value })}
-                     />
-                   </SettingsSection>
-+                  <SettingsSection title="Project environment">
-+                    <SettingsSwitchRow
-+                      icon="hammer"
-+                      label="Load direnv environment"
-+                      subtitle="Start agents with the project's allowed .envrc, such as a Nix dev shell."
-+                      value={uniform("enableDirenvEnvironment")}
-+                      disabled={disabledFor("enableDirenvEnvironment")}
-+                      onValueChange={(value) => write({ enableDirenvEnvironment: value })}
-+                    />
-+                  </SettingsSection>
-                 </>
-               ) : null}
- 
 diff --git a/apps/mobile/src/features/threads/thread-work-log.tsx b/apps/mobile/src/features/threads/thread-work-log.tsx
 index 71944a6fa0..d57b63a059 100644
 --- a/apps/mobile/src/features/threads/thread-work-log.tsx
@@ -245,14 +222,14 @@ index 58cd4a0c0c..f004454c4f 100644
          const additionalContextByThread = yield* Ref.make(
            new Map<
 diff --git a/apps/server/src/orchestration-v2/EffectWorker.test.ts b/apps/server/src/orchestration-v2/EffectWorker.test.ts
-index cb13093037..d1d6fdc6b7 100644
+index cb13093037..d598106e10 100644
 --- a/apps/server/src/orchestration-v2/EffectWorker.test.ts
 +++ b/apps/server/src/orchestration-v2/EffectWorker.test.ts
 @@ -111,6 +111,7 @@ function layerExecutorFor(input: {
          closeInstance: () => Effect.void,
          release: () => record("release"),
          detach: () => record("detach"),
-+        takeProjectEnvironmentFailure: () => Effect.succeed(undefined),
++        takeProjectEnvironmentFailure: () => Effect.undefined,
        }),
      ),
      Layer.succeed(
@@ -695,26 +672,26 @@ index df2ee630df..b8b4c22c15 100644
              if (Option.isNone(detached)) {
                return;
 diff --git a/apps/server/src/orchestration-v2/ProviderTurnControlService.test.ts b/apps/server/src/orchestration-v2/ProviderTurnControlService.test.ts
-index a39f6b7f03..fe3dfacd34 100644
+index a39f6b7f03..e9fe1c84e7 100644
 --- a/apps/server/src/orchestration-v2/ProviderTurnControlService.test.ts
 +++ b/apps/server/src/orchestration-v2/ProviderTurnControlService.test.ts
 @@ -281,6 +281,7 @@ it.effect(
            closeInstance: () => Effect.void,
            release: () => Effect.void,
            detach: () => Effect.void,
-+          takeProjectEnvironmentFailure: () => Effect.succeed(undefined),
++          takeProjectEnvironmentFailure: () => Effect.undefined,
          }),
        );
        const layerControl = ProviderTurnControlService.layer.pipe(
 diff --git a/apps/server/src/orchestration-v2/ProviderTurnStartService.test.ts b/apps/server/src/orchestration-v2/ProviderTurnStartService.test.ts
-index 7a922d79c7..87ada84019 100644
+index 7a922d79c7..133594b93d 100644
 --- a/apps/server/src/orchestration-v2/ProviderTurnStartService.test.ts
 +++ b/apps/server/src/orchestration-v2/ProviderTurnStartService.test.ts
 @@ -747,6 +747,7 @@ function makeLocalCommandHarness(input: {
                      interruptTurn,
                    } as unknown as ProviderAdapter.ProviderAdapterV2SessionRuntime),
              ),
-+          takeProjectEnvironmentFailure: () => Effect.succeed(undefined),
++          takeProjectEnvironmentFailure: () => Effect.undefined,
          }),
          Layer.mock(ProviderAuthService.ProviderAuthService)({ tryHandlePromptCommand }),
          Layer.mock(RunExecutionService.RunExecutionServiceV2)({ startRootRun }),
@@ -1398,7 +1375,7 @@ index 8c8509550b..d90b35b2b5 100644
            vcsStatusBroadcaster.refreshStatus(input.cwd, { localOnly: input.localOnly ?? false }),
          [WS_METHODS.vcsPull]: (input) =>
 diff --git a/apps/web/src/components/chat/TimelineWorkEntryRow.tsx b/apps/web/src/components/chat/TimelineWorkEntryRow.tsx
-index a8d5e3e68d..0f5b53a434 100644
+index a8d5e3e68d..c93e581030 100644
 --- a/apps/web/src/components/chat/TimelineWorkEntryRow.tsx
 +++ b/apps/web/src/components/chat/TimelineWorkEntryRow.tsx
 @@ -9,6 +9,7 @@ import {
@@ -1423,14 +1400,14 @@ index a8d5e3e68d..0f5b53a434 100644
  import { useAssetUrls } from "../../assets/assetUrls";
  import { useThreadShell } from "../../state/entities";
 +import { threadEnvironment } from "../../state/threads";
-+import { toastManager } from "../ui/toast";
 +import { useAtomCommand } from "../../state/use-atom-command";
++import { toastManager } from "../ui/toast";
  import {
    threadReadLabelPrefix,
    threadReadTargetId,
-@@ -141,6 +145,60 @@ export function ReasoningTraceContent({ entries }: { entries: ReadonlyArray<Time
-   );
- }
+@@ -148,6 +152,60 @@ type WorkEntryRowProps = {
+   onToggleEntry?: ((collapsed: boolean) => void) | undefined;
+ };
  
 +/** Allows the thread's blocked `.envrc`; the next message loads it. */
 +// The virtualized timeline remounts rows, so the outcome outlives the button.
@@ -1486,78 +1463,19 @@ index a8d5e3e68d..0f5b53a434 100644
 +  );
 +}
 +
- type WorkEntryRowProps = {
-   workEntry: TimelineWorkEntry;
-   workspaceRoot: string | undefined;
+ export const SimpleWorkEntryRow = memo(function SimpleWorkEntryRow(props: WorkEntryRowProps) {
+   const ctx = use(TimelineRowCtx);
+   const item = props.workEntry.projectedItem?.item;
 @@ -487,6 +545,9 @@ function WorkEntryLogRow(props: WorkEntryRowProps) {
            !toolIconAcceptsTint(entryToolIcon) ? (
              <XIcon aria-hidden className={cn("size-3 shrink-0", failedToolIconClassName)} />
            ) : null}
-+          {workEntry.warningAction?.type === "direnv.allow" && ctx.threadRef ? (
-+            <AllowDirenvButton threadRef={ctx.threadRef} warningId={workEntry.id} />
++          {workEntry.warningAction?.type === "direnv.allow" && threadRef ? (
++            <AllowDirenvButton threadRef={threadRef} warningId={workEntry.id} />
 +          ) : null}
            <TimelineRowTimestamp createdAt={workEntry.createdAt} timestampFormat={timestampFormat} />
            <span
              className={cn(
-diff --git a/apps/web/src/components/settings/SettingsPanels.tsx b/apps/web/src/components/settings/SettingsPanels.tsx
-index c4e3d27a07..c1eb020a77 100644
---- a/apps/web/src/components/settings/SettingsPanels.tsx
-+++ b/apps/web/src/components/settings/SettingsPanels.tsx
-@@ -519,6 +519,9 @@ export function useSettingsRestore(onRestored?: () => void) {
-     ...(settings.enableProviderUpdateChecks !== DEFAULT_UNIFIED_SETTINGS.enableProviderUpdateChecks
-       ? ["Provider update checks"]
-       : []),
-+    ...(settings.enableDirenvEnvironment !== DEFAULT_UNIFIED_SETTINGS.enableDirenvEnvironment
-+      ? ["Load direnv environment"]
-+      : []),
-     ...(settings.continueThreadsAfterServerUpdate !==
-     DEFAULT_UNIFIED_SETTINGS.continueThreadsAfterServerUpdate
-       ? ["Continue threads after restarts"]
-@@ -639,6 +642,7 @@ export function useSettingsRestore(onRestored?: () => void) {
-       snoozePresets: DEFAULT_UNIFIED_SETTINGS.snoozePresets,
-       responseStreamingMode: DEFAULT_UNIFIED_SETTINGS.responseStreamingMode,
-       enableProviderUpdateChecks: DEFAULT_UNIFIED_SETTINGS.enableProviderUpdateChecks,
-+      enableDirenvEnvironment: DEFAULT_UNIFIED_SETTINGS.enableDirenvEnvironment,
-       continueThreadsAfterServerUpdate: DEFAULT_UNIFIED_SETTINGS.continueThreadsAfterServerUpdate,
-       backgroundActivity: DEFAULT_UNIFIED_SETTINGS.backgroundActivity,
-       backgroundActivityProfile: DEFAULT_UNIFIED_SETTINGS.backgroundActivityProfile,
-@@ -1951,6 +1955,36 @@ export function MaintenanceSettingsPanel() {
-             />
-           }
-         />
-+
-+        <SettingsRow
-+          {...searchableSetting("direnv-environment")}
-+          serverScoped
-+          settingKeys={["enableDirenvEnvironment"]}
-+          description="Start agents with the project's direnv environment, such as a Nix dev shell. Only .envrc files approved with direnv allow are loaded."
-+          resetAction={
-+            settings.enableDirenvEnvironment !==
-+            DEFAULT_UNIFIED_SETTINGS.enableDirenvEnvironment ? (
-+              <SettingResetButton
-+                label="direnv environment"
-+                onClick={() =>
-+                  updateSettings({
-+                    enableDirenvEnvironment: DEFAULT_UNIFIED_SETTINGS.enableDirenvEnvironment,
-+                  })
-+                }
-+              />
-+            ) : null
-+          }
-+          control={
-+            <ScopedSwitch
-+              settingKeys={["enableDirenvEnvironment"]}
-+              checked={settings.enableDirenvEnvironment}
-+              onCheckedChange={(checked) =>
-+                updateSettings({ enableDirenvEnvironment: Boolean(checked) })
-+              }
-+              aria-label="Load direnv environment"
-+            />
-+          }
-+        />
-       </SettingsSection>
- 
-       <SettingsSection id="background" title="Background activity">
 diff --git a/apps/web/src/components/settings/settingsSearch.ts b/apps/web/src/components/settings/settingsSearch.ts
 index 1d5c13e72a..e889e790e2 100644
 --- a/apps/web/src/components/settings/settingsSearch.ts
