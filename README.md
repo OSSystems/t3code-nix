@@ -15,7 +15,7 @@ patches, and the hashes.
 ```mermaid
 flowchart LR
   upstream["pingdotgg/t3code<br/>stable tag (v0.1.5)"]
-  fork["OSSystems/t3code<br/>direnv patches rebased onto v0.1.5"]
+  fork["OSSystems/t3code<br/>first-class direnv series on v0.1.5<br/>(branch v0.1.5+first-class-direnv)"]
   recipe["nixpkgs<br/>t3code recipe"]
   patches["packages/t3code/patches"]
   pkg["packages/t3code/package.nix"]

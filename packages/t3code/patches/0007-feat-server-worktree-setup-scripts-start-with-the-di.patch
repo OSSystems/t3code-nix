@@ -1,0 +1,295 @@
+From b64d108ee5a3ccb4609d082dc7b7b85b97af3d8e Mon Sep 17 00:00:00 2001
+From: Otavio Salvador <otavio@ossystems.com.br>
+Date: Fri, 30 Oct 2026 08:00:08 -0300
+Subject: [PATCH 07/11] feat(server): worktree setup scripts start with the
+ direnv environment
+
+A new Load direnv environment setup stage evaluates the worktree's approved .envrc before the
+setup script, so projects no longer need a direnv allow setup script. A failure is shown on the
+stage and setup continues.
+---
+ .../ThreadLaunchService.test.ts               | 64 +++++++++++++++++++
+ .../orchestration-v2/ThreadLaunchService.ts   | 57 ++++++++++++++++-
+ .../src/project/ProjectSetupScriptRunner.ts   | 10 +++
+ packages/contracts/src/worktreeSetup.ts       |  4 ++
+ 4 files changed, 133 insertions(+), 2 deletions(-)
+
+diff --git a/apps/server/src/orchestration-v2/ThreadLaunchService.test.ts b/apps/server/src/orchestration-v2/ThreadLaunchService.test.ts
+index ea1669f4b7..0dccc1817f 100644
+--- a/apps/server/src/orchestration-v2/ThreadLaunchService.test.ts
++++ b/apps/server/src/orchestration-v2/ThreadLaunchService.test.ts
+@@ -46,6 +46,8 @@ import * as SqlitePersistence from "../persistence/Sqlite.ts";
+ import * as ProjectStore from "./ProjectStore.ts";
+ import * as ProjectService from "../project/ProjectService.ts";
+ import * as ProjectSetupScriptRunner from "../project/ProjectSetupScriptRunner.ts";
++import * as ProjectEnvironmentService from "../project/ProjectEnvironmentService.ts";
++import * as DirenvEnvironment from "../provider/DirenvEnvironment.ts";
+ import * as ManagedProjectFolders from "../project/ManagedProjectFolders.ts";
+ import * as ProviderRegistryMock from "../provider/testUtils/providerRegistryMock.ts";
+ import * as ServerSettings from "../serverSettings.ts";
+@@ -129,6 +131,9 @@ interface HarnessOptions {
+   readonly serverSettings?: Parameters<typeof ServerSettings.layerTest>[0];
+   readonly providers?: ReadonlyArray<ServerProvider>;
+   readonly git?: Partial<GitWorkflow.GitWorkflowService["Service"]>;
++  readonly projectEnvironment?: Layer.Layer<
++    DirenvEnvironment.DirenvEnvironment | ProjectEnvironmentService.ProjectEnvironmentService
++  >;
+ }
+ 
+ function makeHarness(options: HarnessOptions = {}) {
+@@ -222,6 +227,7 @@ function makeHarness(options: HarnessOptions = {}) {
+         isScratchProject: () => Effect.succeed(false),
+         folderForThread: () => Effect.succeedNone,
+       }),
++    options.projectEnvironment ?? Layer.empty,
+   );
+   const layerLaunch = ThreadLaunch.layer.pipe(
+     Layer.provide(
+@@ -2059,6 +2065,64 @@ it.effect("shared intake preserves durable attachment bytes after a lost launch
+   }).pipe(Effect.provide(Layer.mergeAll(harness.layer, layerFiles)));
+ });
+ 
++it.effect.each([
++  {
++    worktree: "has an .envrc",
++    load: {
++      _tag: "Loaded",
++      diff: { PATH: "/nix/store/tools/bin", STALE: null },
++      changed: true,
++    } satisfies DirenvEnvironment.DirenvLoadResult,
++    environment: { PATH: "/nix/store/tools/bin", STALE: null },
++    stages: [["environment", "done"]],
++  },
++  {
++    worktree: "has no .envrc",
++    load: { _tag: "None" } satisfies DirenvEnvironment.DirenvLoadResult,
++    environment: undefined,
++    stages: [],
++  },
++])("loads the direnv environment before setup when the worktree $worktree", (row) =>
++  Effect.gen(function* () {
++    const entered = yield* Deferred.make<ProjectSetupScriptRunner.ProjectSetupScriptRunnerInput>();
++    const harness = makeHarness({
++      runSetup: (input) => Deferred.succeed(entered, input).pipe(Effect.andThen(Effect.never)),
++      projectEnvironment: Layer.mergeAll(
++        Layer.mock(ProjectEnvironmentService.ProjectEnvironmentService)({
++          enabled: () => Effect.succeed(true),
++          prepare: () => Effect.succeed(true),
++        }),
++        Layer.mock(DirenvEnvironment.DirenvEnvironment)({ load: () => Effect.succeed(row.load) }),
++      ),
++    });
++    yield* Effect.gen(function* () {
++      const launches = yield* ThreadLaunch.ThreadLaunchService;
++      const tracker = yield* WorktreeSetupTracker.WorktreeSetupTracker;
++      const launched = yield* launches.launch(
++        launchInput({
++          command: "launch:direnv-setup",
++          thread: "thread:direnv-setup",
++          message: "Start",
++          workspace: { type: "worktree", baseRef: "main" },
++        }),
++      );
++      const setup = yield* Deferred.await(entered);
++      assert.deepEqual(setup.environment, row.environment);
++      const stages = (yield* tracker.get(launched.threadId))?.stages ?? [];
++      assert.deepEqual(
++        stages.map((stage) => [stage.id, stage.status]),
++        [
++          ["fetch", "skipped"],
++          ["checkout", "done"],
++          ...row.stages,
++          ["setup-script", "running"],
++          ["agent", "pending"],
++        ],
++      );
++    }).pipe(Effect.provide(harness.layer));
++  }),
++);
++
+ it.effect("cancels tracked setup before provider work is released", () =>
+   Effect.gen(function* () {
+     const entered = yield* Deferred.make<void>();
+diff --git a/apps/server/src/orchestration-v2/ThreadLaunchService.ts b/apps/server/src/orchestration-v2/ThreadLaunchService.ts
+index 7a45a54a31..994e58d59d 100644
+--- a/apps/server/src/orchestration-v2/ThreadLaunchService.ts
++++ b/apps/server/src/orchestration-v2/ThreadLaunchService.ts
+@@ -40,9 +40,11 @@ import {
+ } from "@t3tools/shared/git";
+ 
+ import * as GitWorkflow from "../git/GitWorkflowService.ts";
++import * as ProjectEnvironmentService from "../project/ProjectEnvironmentService.ts";
+ import * as ProjectService from "../project/ProjectService.ts";
+ import * as ProjectSetupScriptRunner from "../project/ProjectSetupScriptRunner.ts";
+ import * as ManagedProjectFolders from "../project/ManagedProjectFolders.ts";
++import * as DirenvEnvironment from "../provider/DirenvEnvironment.ts";
+ import * as ProviderRegistry from "../provider/ProviderRegistry.ts";
+ import * as ServerSettings from "../serverSettings.ts";
+ import * as TextGeneration from "../textGeneration/TextGeneration.ts";
+@@ -215,10 +217,50 @@ const make = Effect.gen(function* () {
+   const ids = yield* IdAllocator.IdAllocatorV2;
+   const threads = yield* ThreadManagement.ThreadManagementService;
+   const managedFolders = yield* ManagedProjectFolders.ManagedProjectFolders;
++  const projectEnvironment = yield* Effect.serviceOption(
++    ProjectEnvironmentService.ProjectEnvironmentService,
++  );
++  const direnv = yield* Effect.serviceOption(DirenvEnvironment.DirenvEnvironment);
+   const preparationScope = yield* Scope.make("sequential");
+   const scheduledLaunches = yield* Ref.make<ReadonlySet<CommandId>>(new Set());
+   yield* Effect.addFinalizer(() => Scope.close(preparationScope, Exit.void));
+ 
++  /**
++   * Allow and load the worktree's direnv environment before its setup script,
++   * which then runs with the same tools the agent gets. A failure is shown on
++   * the stage and setup continues without it, as the agent would.
++   */
++  const loadSetupEnvironment = Effect.fn("ThreadLaunchService.loadSetupEnvironment")(function* (
++    threadId: ThreadId,
++    projectId: ProjectId,
++    worktreePath: string,
++  ) {
++    if (Option.isNone(projectEnvironment) || Option.isNone(direnv)) return undefined;
++    yield* setupTracker.stageStatus(threadId, "environment", "running");
++    if (!(yield* projectEnvironment.value.prepare(projectId, worktreePath))) {
++      yield* setupTracker.stageStatus(threadId, "environment", "skipped", "not approved");
++      return undefined;
++    }
++    const result = yield* direnv.value.load(worktreePath);
++    switch (result._tag) {
++      case "None":
++        yield* setupTracker.update(threadId, (snapshot) => ({
++          ...snapshot,
++          stages: snapshot.stages.filter((stage) => stage.id !== "environment"),
++        }));
++        return undefined;
++      case "Failed":
++        yield* setupTracker.stage(threadId, "environment", {
++          status: "failed",
++          detail: result.message,
++        });
++        return undefined;
++      case "Loaded":
++        yield* setupTracker.stageStatus(threadId, "environment", "done");
++        return result.diff;
++    }
++  });
++
+   const mapError =
+     (input: PreparationInput, operation: ThreadLaunchError["operation"], threadId?: ThreadId) =>
+     (cause: unknown) =>
+@@ -315,12 +357,18 @@ const make = Effect.gen(function* () {
+     let runReleased = false;
+     // Stop background renames before forgetting worktrees; completed renames record them again.
+     let branchRename: Fiber.Fiber<unknown> | null = null;
++    // The stage leaves the list after checkout when the worktree has no `.envrc`.
++    const loadsEnvironment =
++      tracked && Option.isSome(projectEnvironment) && Option.isSome(direnv)
++        ? yield* projectEnvironment.value.enabled(input.projectId)
++        : false;
++    const environmentStage: ReadonlyArray<"environment"> = loadsEnvironment ? ["environment"] : [];
+     if (input.workspaceStrategy.type === "worktree") {
+       yield* setupTracker.begin({
+         threadId,
+         branch: input.workspaceStrategy.branch ?? null,
+         baseRef: input.workspaceStrategy.baseRef,
+-        stages: ["fetch", "checkout", "setup-script", "agent"],
++        stages: ["fetch", "checkout", ...environmentStage, "setup-script", "agent"],
+         fiber: yield* Effect.fiber,
+       });
+     } else if (reused !== undefined) {
+@@ -328,7 +376,7 @@ const make = Effect.gen(function* () {
+         threadId,
+         branch: input.workspaceStrategy.branch ?? null,
+         baseRef: reused.baseRef,
+-        stages: ["setup-script", "agent"],
++        stages: [...environmentStage, "setup-script", "agent"],
+         fiber: yield* Effect.fiber,
+       });
+     }
+@@ -568,6 +616,10 @@ const make = Effect.gen(function* () {
+           })
+           .pipe(Effect.mapError(mapError(input, "update-thread", threadId)));
+       }
++      const environment =
++        loadsEnvironment && worktreePath !== null
++          ? yield* loadSetupEnvironment(threadId, input.projectId, worktreePath)
++          : undefined;
+       yield* setupTracker.stageStatus(threadId, "setup-script", "running");
+       const setup =
+         worktreePath === null
+@@ -578,6 +630,7 @@ const make = Effect.gen(function* () {
+                 projectId: input.projectId,
+                 projectCwd: project.workspaceRoot,
+                 worktreePath,
++                ...(environment ? { environment } : {}),
+                 ...(tracked
+                   ? {
+                       observeCompletion: {
+diff --git a/apps/server/src/project/ProjectSetupScriptRunner.ts b/apps/server/src/project/ProjectSetupScriptRunner.ts
+index 095f20938c..5310b0cd2b 100644
+--- a/apps/server/src/project/ProjectSetupScriptRunner.ts
++++ b/apps/server/src/project/ProjectSetupScriptRunner.ts
+@@ -75,6 +75,8 @@ export interface ProjectSetupScriptRunnerInput {
+   readonly observeCompletion?: {
+     readonly onOutputLine?: (line: string) => Effect.Effect<void>;
+   };
++  /** The project's direnv diff, so the script sees the same tools as the agent. */
++  readonly environment?: Readonly<Record<string, string | null>>;
+ }
+ 
+ export class ProjectSetupScriptOperationError extends Schema.TaggedError<ProjectSetupScriptOperationError>()(
+@@ -432,7 +434,14 @@ export const make = Effect.gen(function* () {
+         ? `settle-${script.id}-${(yield* crypto.randomUUIDv4().pipe(Effect.orDie)).slice(0, 8)}`
+         : `setup-${script.id}`;
+     const cwd = input.worktreePath;
++    const direnvSet: Record<string, string> = {};
++    const unsetEnv: string[] = [];
++    for (const [name, value] of Object.entries(input.environment ?? {})) {
++      if (value === null) unsetEnv.push(name);
++      else direnvSet[name] = value;
++    }
+     const env = {
++      ...direnvSet,
+       ...projectScriptRuntimeEnv({
+         project: { cwd: project.workspaceRoot },
+         worktreePath: input.worktreePath,
+@@ -482,6 +491,7 @@ export const make = Effect.gen(function* () {
+         cwd,
+         worktreePath: input.worktreePath,
+         env: { ...env, NO_COLOR: "1", FORCE_COLOR: "0" },
++        ...(unsetEnv.length > 0 ? { unsetEnv } : {}),
+       })
+       .pipe(
+         Effect.mapError(
+diff --git a/packages/contracts/src/worktreeSetup.ts b/packages/contracts/src/worktreeSetup.ts
+index e9b64e4c90..07a8112beb 100644
+--- a/packages/contracts/src/worktreeSetup.ts
++++ b/packages/contracts/src/worktreeSetup.ts
+@@ -11,6 +11,7 @@ export const WorktreeSetupStageId = Schema.Literals([
+   "fetch",
+   "checkout",
+   "submodules",
++  "environment",
+   "setup-script",
+   "agent",
+ ]);
+@@ -83,6 +84,7 @@ export const WORKTREE_SETUP_STAGE_ORDER: ReadonlyArray<WorktreeSetupStageId> = [
+   "fetch",
+   "checkout",
+   "submodules",
++  "environment",
+   "setup-script",
+   "agent",
+ ];
+@@ -95,6 +97,8 @@ export function worktreeSetupStageLabel(id: WorktreeSetupStageId): string {
+       return "Check out files";
+     case "submodules":
+       return "Init submodules";
++    case "environment":
++      return "Load direnv environment";
+     case "setup-script":
+       return "Run setup script";
+     case "agent":
+-- 
+2.56.0
+
