@@ -2,7 +2,6 @@
   lib,
   fetchFromGitHub,
   fetchPnpmDeps,
-  nodejs_26,
   pnpm_12,
   rustPlatform,
   t3code,
@@ -33,10 +32,7 @@ let
   ];
 
   unwrapped =
-    (t3code.unwrapped.override {
-      nodejs = nodejs_26;
-      pnpm_11 = pnpm_12;
-    }).overrideAttrs
+    t3code.unwrapped.overrideAttrs
       (
         finalAttrs: _: {
           inherit version src patches;
