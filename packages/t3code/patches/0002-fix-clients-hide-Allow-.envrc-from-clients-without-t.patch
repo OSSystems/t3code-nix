@@ -1,8 +1,8 @@
-From 6725e3da65dbf3f29144f5848c0c8306d9db2366 Mon Sep 17 00:00:00 2001
+From 9af03557d2083abacdafedebcd49ea4b5e3cef32 Mon Sep 17 00:00:00 2001
 From: Otavio Salvador <otavio@ossystems.com.br>
 Date: Sun, 11 Oct 2026 22:52:05 -0300
-Subject: [PATCH 2/2] fix(clients): hide Allow .envrc from clients without the
- operate grant
+Subject: [PATCH 02/11] fix(clients): hide Allow .envrc from clients without
+ the operate grant
 
 Allowing a project's .envrc is guarded by the orchestration operate grant,
 but the web and mobile buttons showed for every client, so a read-only
@@ -30,7 +30,7 @@ index d57b63a059..6c852065d9 100644
      <Pressable
        accessibilityRole="button"
 diff --git a/apps/web/src/components/chat/TimelineWorkEntryRow.tsx b/apps/web/src/components/chat/TimelineWorkEntryRow.tsx
-index 0f5b53a434..c3fe8307da 100644
+index c93e581030..9a0223c612 100644
 --- a/apps/web/src/components/chat/TimelineWorkEntryRow.tsx
 +++ b/apps/web/src/components/chat/TimelineWorkEntryRow.tsx
 @@ -13,6 +13,7 @@ import {
@@ -41,7 +41,7 @@ index 0f5b53a434..c3fe8307da 100644
  import { Link } from "@tanstack/react-router";
  import { notificationChildThreadId } from "@t3tools/client-runtime/state/thread-execution";
  import {
-@@ -160,6 +161,11 @@ function AllowDirenvButton({
+@@ -167,6 +168,11 @@ function AllowDirenvButton({
    const [state, setState] = useState<"idle" | "pending" | "allowed">(() =>
      allowedDirenvWarnings.has(warningId) ? "allowed" : "idle",
    );
