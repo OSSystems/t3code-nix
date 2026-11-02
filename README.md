@@ -7,8 +7,8 @@ with patches that upstream does not have yet.
 
 The `t3code` package in nixpkgs builds the upstream release as-is. We need
 patches on top of it, such as direnv support for agents, while they wait for
-upstream. This flake reuses the nixpkgs recipe and changes only the release, the
-patches, and the hashes.
+upstream. This flake reuses the nixpkgs recipe with release-specific patches and
+runtime configuration.
 
 ## How it fits together
 
