@@ -1,4 +1,4 @@
-From 37c614799c5c8a7d9b98f1c9e48da9c8204cb9f0 Mon Sep 17 00:00:00 2001
+From b6e9e125b9557324194f34cbb5d309737a10b51a Mon Sep 17 00:00:00 2001
 From: Otavio Salvador <otavio@ossystems.com.br>
 Date: Fri, 30 Oct 2026 07:59:53 -0300
 Subject: [PATCH 05/11] feat(server): Codex runs one shared process per project
@@ -9,12 +9,12 @@ project; threads with a stored session id keep it.
 ---
  .../Orchestrator.control-reads.test.ts        | 44 +++++++++++++++++++
  .../src/orchestration-v2/Orchestrator.ts      |  8 ++++
- .../ProviderSessionManager.test.ts            |  7 +++
+ .../ProviderSessionManager.test.ts            |  8 ++++
  .../provider-core/src/server/IdAllocator.ts   |  9 +++-
- 4 files changed, 67 insertions(+), 1 deletion(-)
+ 4 files changed, 68 insertions(+), 1 deletion(-)
 
 diff --git a/apps/server/src/orchestration-v2/Orchestrator.control-reads.test.ts b/apps/server/src/orchestration-v2/Orchestrator.control-reads.test.ts
-index c36dfc365a..bf4f3a67d5 100644
+index 61515a053a..9c6c04f01d 100644
 --- a/apps/server/src/orchestration-v2/Orchestrator.control-reads.test.ts
 +++ b/apps/server/src/orchestration-v2/Orchestrator.control-reads.test.ts
 @@ -198,6 +198,50 @@ it.effect(
@@ -69,18 +69,18 @@ index c36dfc365a..bf4f3a67d5 100644
    Effect.gen(function* () {
      const orchestrator = yield* Orchestrator.OrchestratorV2;
 diff --git a/apps/server/src/orchestration-v2/Orchestrator.ts b/apps/server/src/orchestration-v2/Orchestrator.ts
-index d0edd5dacf..29bd12289b 100644
+index 0a5e56d98d..637c7ccece 100644
 --- a/apps/server/src/orchestration-v2/Orchestrator.ts
 +++ b/apps/server/src/orchestration-v2/Orchestrator.ts
-@@ -59,6 +59,7 @@ import {
-   latestProviderTurnForAttempt,
+@@ -60,6 +60,7 @@ import {
    parseGoalCommand,
    orchestrationV2RunWorkStartedAt,
+   orchestrationV2WorktreePending,
 +  type ProjectId,
    ProviderInstanceId,
    ProviderInteractionMode,
    resolveProviderInstanceEnabled,
-@@ -1064,13 +1065,16 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
+@@ -1066,13 +1067,16 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
      readonly adapter: ProviderAdapter.ProviderAdapterV2["Service"];
      readonly providerInstanceId: ProviderInstanceId;
      readonly threadId: ThreadId;
@@ -97,7 +97,7 @@ index d0edd5dacf..29bd12289b 100644
                }),
              )
            : idAllocator.allocate.providerSession({
-@@ -1870,6 +1874,7 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
+@@ -1932,6 +1936,7 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
                adapter,
                providerInstanceId: queuedRun.providerInstanceId,
                threadId,
@@ -105,7 +105,7 @@ index d0edd5dacf..29bd12289b 100644
              }),
            ),
            Effect.mapError(
-@@ -4716,6 +4721,7 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
+@@ -4938,6 +4943,7 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
              adapter: targetAdapter,
              providerInstanceId: input.modelSelection.instanceId,
              threadId: input.command.threadId,
@@ -113,7 +113,7 @@ index d0edd5dacf..29bd12289b 100644
            }),
          ));
        const targetProviderThreadBase: OrchestrationV2ProviderThread =
-@@ -5933,6 +5939,7 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
+@@ -6151,6 +6157,7 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
              adapter,
              providerInstanceId: modelSelection.instanceId,
              threadId: command.threadId,
@@ -121,7 +121,7 @@ index d0edd5dacf..29bd12289b 100644
            }),
          ));
        const providerThreadId =
-@@ -6316,6 +6323,7 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
+@@ -6543,6 +6550,7 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
            adapter,
            providerInstanceId: modelSelection.instanceId,
            threadId: command.threadId,
@@ -130,10 +130,10 @@ index d0edd5dacf..29bd12289b 100644
        ));
      const existingProviderSession = projection.providerSessions.find(
 diff --git a/apps/server/src/orchestration-v2/ProviderSessionManager.test.ts b/apps/server/src/orchestration-v2/ProviderSessionManager.test.ts
-index 3d1305d224..43cee84fda 100644
+index be1e0b69b3..b484241a1f 100644
 --- a/apps/server/src/orchestration-v2/ProviderSessionManager.test.ts
 +++ b/apps/server/src/orchestration-v2/ProviderSessionManager.test.ts
-@@ -1185,6 +1185,7 @@ it.effect(
+@@ -1188,6 +1188,7 @@ it.effect(
          const threadB = ThreadId.make("thread-provider-session-manager-shared-stopped-b");
          const providerSessionId = idAllocator.derive.providerSession({
            providerInstanceId: modelSelection.instanceId,
@@ -141,7 +141,7 @@ index 3d1305d224..43cee84fda 100644
          });
          yield* eventSink.write({
            events: [
-@@ -1274,6 +1275,7 @@ it.effect(
+@@ -1277,6 +1278,7 @@ it.effect(
          const threadB = ThreadId.make("thread-provider-session-manager-stopped-ended-b");
          const providerSessionId = idAllocator.derive.providerSession({
            providerInstanceId: modelSelection.instanceId,
@@ -149,7 +149,15 @@ index 3d1305d224..43cee84fda 100644
          });
          yield* eventSink.write({
            events: [
-@@ -1786,6 +1788,7 @@ it.effect(
+@@ -1427,6 +1429,7 @@ it.effect(
+         const sibling = ThreadId.make("thread-provider-session-manager-release-sibling");
+         const providerSessionId = idAllocator.derive.providerSession({
+           providerInstanceId: modelSelection.instanceId,
++          projectId: ProjectId.make("project-provider-session-manager"),
+         });
+         yield* eventSink.write({
+           events: [
+@@ -1942,6 +1945,7 @@ it.effect(
          const threadId = ThreadId.make("thread-provider-session-manager-attach-race");
          const providerSessionId = idAllocator.derive.providerSession({
            providerInstanceId: modelSelection.instanceId,
@@ -157,7 +165,7 @@ index 3d1305d224..43cee84fda 100644
          });
          yield* eventSink.write({
            events: [
-@@ -1849,6 +1852,7 @@ it.effect(
+@@ -2005,6 +2009,7 @@ it.effect(
          const threadId = ThreadId.make("thread-provider-session-manager-stale-attach");
          const providerSessionId = idAllocator.derive.providerSession({
            providerInstanceId: modelSelection.instanceId,
@@ -165,7 +173,7 @@ index 3d1305d224..43cee84fda 100644
          });
          yield* eventSink.write({
            events: [
-@@ -1941,6 +1945,7 @@ it.effect(
+@@ -2097,6 +2102,7 @@ it.effect(
          const threadId = ThreadId.make("thread-provider-session-manager-resolve-stop");
          const providerSessionId = idAllocator.derive.providerSession({
            providerInstanceId: modelSelection.instanceId,
@@ -173,7 +181,7 @@ index 3d1305d224..43cee84fda 100644
          });
          yield* eventSink.write({
            events: [
-@@ -3115,6 +3120,7 @@ it.effect(
+@@ -3275,6 +3281,7 @@ it.effect(
          });
          const providerSessionId = idAllocator.derive.providerSession({
            providerInstanceId: modelSelection.instanceId,
@@ -181,7 +189,7 @@ index 3d1305d224..43cee84fda 100644
          });
  
          yield* eventSink.write({
-@@ -3406,6 +3412,7 @@ it.effect(
+@@ -3566,6 +3573,7 @@ it.effect(
          });
          const providerSessionId = idAllocator.derive.providerSession({
            providerInstanceId: modelSelection.instanceId,
@@ -216,6 +224,3 @@ index 04c1e0396a..24559868fb 100644
      ),
    delegatedTaskNode: (input) => NodeId.make(joinId("node", "delegated-task", input.commandId)),
    delegatedTaskThread: (input) =>
--- 
-2.56.0
-
