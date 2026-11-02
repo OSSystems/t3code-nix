@@ -38,6 +38,26 @@ nix run github:OSSystems/t3code-nix#t3code
 
 Or add `overlays.default` to your nixpkgs. It replaces `t3code`.
 
+## Preview browser
+
+`t3code-chrome-headless-shell` packages the Chrome for Testing release that T3
+Code uses for browser previews and HTML rendering, with its libraries patched
+for NixOS. Its version and archive hashes follow T3 Code's `PreviewBrowser.ts`.
+
+When using the overlay with Home Manager, link the package where T3 Code looks
+for its browser:
+
+```nix
+{ pkgs, ... }:
+let
+  browser = pkgs.t3code-chrome-headless-shell;
+in
+{
+  home.packages = [ pkgs.t3code ];
+  home.file.".t3/tools/chrome-headless-shell/${browser.platform}/${browser.version}".source = browser;
+}
+```
+
 ## T3 Code OS
 
 `nixosModules.t3code-os` turns one machine into a shared T3 Code host. T3 Code
