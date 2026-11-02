@@ -1,4 +1,4 @@
-From 128aedefe3443892046ce4d0e4d7d4b5ac7c89c2 Mon Sep 17 00:00:00 2001
+From d10109e7fde97f0273ffb59530d7d5c519f17a8d Mon Sep 17 00:00:00 2001
 From: Otavio Salvador <otavio@ossystems.com.br>
 Date: Fri, 30 Oct 2026 08:00:08 -0300
 Subject: [PATCH 08/11] feat(web): ask to approve a project's .envrc and show
@@ -21,18 +21,18 @@ Settings > Worktrees holds the project's direnv and trust-changes settings.
  create mode 100644 apps/web/src/components/settings/ProjectEnvironmentSettings.tsx
 
 diff --git a/apps/web/src/components/ChatView.tsx b/apps/web/src/components/ChatView.tsx
-index de76f47844..ab2ebdf164 100644
+index e15424cf09..5ee0939085 100644
 --- a/apps/web/src/components/ChatView.tsx
 +++ b/apps/web/src/components/ChatView.tsx
-@@ -307,6 +307,7 @@ import { useProactivePanels } from "../hooks/useProactivePanels";
+@@ -311,6 +311,7 @@ import { useProactivePanels } from "../hooks/useProactivePanels";
  import { useIncrementalTimelineEntries } from "../hooks/useIncrementalTimelineEntries";
  import { useRightPanelSurfaceClose } from "../hooks/useRightPanelSurfaceClose";
- import type { ComposerBannerStackItem } from "./chat/ComposerBannerStack";
+ import { ComposerBannerStack, type ComposerBannerStackItem } from "./chat/ComposerBannerStack";
 +import { useProjectEnvironmentBanner } from "./chat/useProjectEnvironmentBanner";
  import { modelFallbackBannerItem } from "./chat/ComposerUsageLimits";
  import { ComposerSurface } from "./chat/ComposerSurface";
  import { resolveThreadSyncPhase } from "../threadSync";
-@@ -1082,6 +1083,10 @@ export default function ChatView(props: ChatViewProps) {
+@@ -1120,6 +1121,10 @@ export default function ChatView(props: ChatViewProps) {
    const activeProjectScripts = activeProject ? resolveProjectScripts(settings, activeProject) : [];
    const { projectCloneBannerItem, projectCloneSendBlockReason } =
      useProjectCloneBanner(activeProjectRef);
@@ -43,7 +43,7 @@ index de76f47844..ab2ebdf164 100644
    const activeProjectDefaultModelSelection =
      !isServerThread && draftFallback
        ? draftFallback.selection
-@@ -2563,6 +2568,8 @@ export default function ChatView(props: ChatViewProps) {
+@@ -2620,6 +2625,8 @@ export default function ChatView(props: ChatViewProps) {
      const limitRecoveryItems = limitRecoveryBanner === null ? [] : [limitRecoveryBanner];
      const usageLimitsItems = usageLimitsBanner === null ? [] : [usageLimitsBanner];
      const projectCloneItems = projectCloneBannerItem === null ? [] : [projectCloneBannerItem];
@@ -52,7 +52,7 @@ index de76f47844..ab2ebdf164 100644
      if (!localCheckoutBranchMismatch || !showBranchMismatchBanner || !activeBranchMismatchKey) {
        return [
          ...feedbackBannerItems,
-@@ -2570,6 +2577,7 @@ export default function ChatView(props: ChatViewProps) {
+@@ -2627,6 +2634,7 @@ export default function ChatView(props: ChatViewProps) {
          ...limitRecoveryItems,
          ...usageLimitsItems,
          ...projectCloneItems,
@@ -60,7 +60,7 @@ index de76f47844..ab2ebdf164 100644
          ...systemComposerBannerItems,
        ];
      }
-@@ -2579,6 +2587,7 @@ export default function ChatView(props: ChatViewProps) {
+@@ -2636,6 +2644,7 @@ export default function ChatView(props: ChatViewProps) {
        ...limitRecoveryItems,
        ...usageLimitsItems,
        ...projectCloneItems,
@@ -69,7 +69,7 @@ index de76f47844..ab2ebdf164 100644
        branchMismatchBannerItem({
          mismatchKey: activeBranchMismatchKey,
 diff --git a/apps/web/src/components/chat/ThreadDetailsPanel.tsx b/apps/web/src/components/chat/ThreadDetailsPanel.tsx
-index 35a954db9d..c8703d586f 100644
+index 5c648016ff..ddf3b55d67 100644
 --- a/apps/web/src/components/chat/ThreadDetailsPanel.tsx
 +++ b/apps/web/src/components/chat/ThreadDetailsPanel.tsx
 @@ -20,6 +20,7 @@ import { memo, useState, type ComponentProps } from "react";
@@ -80,7 +80,7 @@ index 35a954db9d..c8703d586f 100644
  import { ThreadAutomationsPanel } from "./ThreadAutomationsPanel";
  import { ThreadRelationshipsPanel } from "./ThreadRelationshipsControl";
  import { ThreadServersPanel } from "./ThreadServersPanel";
-@@ -89,6 +90,11 @@ export function ThreadDetailsPanel(props: ThreadDetailsPanelProps) {
+@@ -93,6 +94,11 @@ export function ThreadDetailsPanel(props: ThreadDetailsPanelProps) {
      props.environmentId,
      props.activeProjectScripts && visible.scripts ? props.gitCwd : null,
    );
@@ -92,7 +92,7 @@ index 35a954db9d..c8703d586f 100644
    const activeThreadRef = { environmentId: props.environmentId, threadId: props.threadId };
    const branchToolbarProps = {
      showGitControls: props.isGitRepo,
-@@ -149,6 +155,7 @@ export function ThreadDetailsPanel(props: ThreadDetailsPanelProps) {
+@@ -153,6 +159,7 @@ export function ThreadDetailsPanel(props: ThreadDetailsPanelProps) {
            environment: density === "full" && visible.environment,
            openIn: density !== "essential" && visible.openIn && props.showOpenInPicker,
            scripts: visible.scripts && props.activeProjectScripts !== undefined,
@@ -100,7 +100,7 @@ index 35a954db9d..c8703d586f 100644
            branch: props.gitCwd !== null && props.isGitRepo && visible.branch,
            git:
              props.gitCwd !== null &&
-@@ -158,7 +165,7 @@ export function ThreadDetailsPanel(props: ThreadDetailsPanelProps) {
+@@ -162,7 +169,7 @@ export function ThreadDetailsPanel(props: ThreadDetailsPanelProps) {
          return (
            <>
              <div className="group/details-items">
@@ -109,7 +109,7 @@ index 35a954db9d..c8703d586f 100644
                  <ThreadDetailsSection
                    headingId="thread-details-workspace-heading"
                    title="Workspace"
-@@ -191,6 +198,8 @@ export function ThreadDetailsPanel(props: ThreadDetailsPanelProps) {
+@@ -195,6 +202,8 @@ export function ThreadDetailsPanel(props: ThreadDetailsPanelProps) {
                        />
                      ) : null}
  
@@ -416,10 +416,10 @@ index a771e92cec..ba86b10fb5 100644
          <BranchNamingSettings />
        </SettingsSection>
 diff --git a/apps/web/src/components/settings/settingsSearch.ts b/apps/web/src/components/settings/settingsSearch.ts
-index e889e790e2..b20fadf177 100644
+index 1d3c31909a..b50d999fbe 100644
 --- a/apps/web/src/components/settings/settingsSearch.ts
 +++ b/apps/web/src/components/settings/settingsSearch.ts
-@@ -596,13 +596,6 @@ export const SETTINGS_SEARCH_ITEMS = [
+@@ -606,13 +606,6 @@ export const SETTINGS_SEARCH_ITEMS = [
        "resume running active interrupted work restart reboot machine crash desktop update automatically",
      ],
    },
@@ -433,7 +433,7 @@ index e889e790e2..b20fadf177 100644
    {
      id: "background-activity",
      title: "Background activity",
-@@ -1039,6 +1032,20 @@ export const SETTINGS_SEARCH_ITEMS = [
+@@ -1049,6 +1042,20 @@ export const SETTINGS_SEARCH_ITEMS = [
      to: "/settings/projects",
      searchTerms: ["commands scripts setup run dev server checkout worktree t3.json import"],
    },
@@ -454,6 +454,3 @@ index e889e790e2..b20fadf177 100644
    {
      id: "environment-icon",
      title: "Environment icon",
--- 
-2.56.0
-

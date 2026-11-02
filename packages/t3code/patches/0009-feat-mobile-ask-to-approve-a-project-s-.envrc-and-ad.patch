@@ -1,4 +1,4 @@
-From 16343366ede5ebd72eaa2f82e72c8884db69ebf2 Mon Sep 17 00:00:00 2001
+From 0e52126e2319026028f8d40c7985d71e180d06fa Mon Sep 17 00:00:00 2001
 From: Otavio Salvador <otavio@ossystems.com.br>
 Date: Fri, 30 Oct 2026 08:00:08 -0300
 Subject: [PATCH 09/11] feat(mobile): ask to approve a project's .envrc and add
@@ -53,10 +53,10 @@ index 91b0b1b044..51fbaf2ee9 100644
                      key={targetsKey}
                      mode={uniform("branchNamingMode")}
 diff --git a/apps/mobile/src/features/threads/NewTaskDraftScreen.tsx b/apps/mobile/src/features/threads/NewTaskDraftScreen.tsx
-index a21fcf039a..a8f7bed5db 100644
+index f3488ebd3b..af389de089 100644
 --- a/apps/mobile/src/features/threads/NewTaskDraftScreen.tsx
 +++ b/apps/mobile/src/features/threads/NewTaskDraftScreen.tsx
-@@ -68,6 +68,7 @@ import { projectEnvironment } from "../../state/projects";
+@@ -69,6 +69,7 @@ import { projectEnvironment } from "../../state/projects";
  import { sourceControlEnvironment } from "../../state/sourceControl";
  import { useAtomCommand } from "../../state/use-atom-command";
  import { ProjectCloneBanner } from "./ProjectCloneBanner";
@@ -64,7 +64,7 @@ index a21fcf039a..a8f7bed5db 100644
  import {
    describeUnavailableModelSelection,
    isModelSelectionUnavailable,
-@@ -899,6 +900,14 @@ export function NewTaskDraftScreen(props: {
+@@ -905,6 +906,14 @@ export function NewTaskDraftScreen(props: {
            content: heroViewport,
            controls: (
              <View className="pb-1">
@@ -239,10 +239,10 @@ index 0000000000..e29bb7c5aa
 +  );
 +}
 diff --git a/apps/mobile/src/features/threads/ThreadDetailScreen.tsx b/apps/mobile/src/features/threads/ThreadDetailScreen.tsx
-index 27655f503b..0cceb58524 100644
+index 870ab31f00..30232bedc7 100644
 --- a/apps/mobile/src/features/threads/ThreadDetailScreen.tsx
 +++ b/apps/mobile/src/features/threads/ThreadDetailScreen.tsx
-@@ -166,6 +166,7 @@ import type {
+@@ -169,6 +169,7 @@ import type {
  } from "../../lib/threadActivity";
  import { PendingApprovalCard } from "./PendingApprovalCard";
  import { ComposerErrorNotice } from "./ComposerErrorNotice";
@@ -250,7 +250,7 @@ index 27655f503b..0cceb58524 100644
  import { ComposerFeedback } from "./ComposerFeedback";
  import { ComposerUsageLimits } from "./ComposerUsageLimits";
  import { PendingUserInputCard } from "./PendingUserInputCard";
-@@ -1451,6 +1452,12 @@ function ThreadDetailBody(props: ThreadDetailScreenProps) {
+@@ -1545,6 +1546,12 @@ function ThreadDetailBody(props: ThreadDetailScreenProps) {
                        onDismiss={() => props.onDismissFeedback(submission.id)}
                      />
                    ))}
@@ -263,6 +263,3 @@ index 27655f503b..0cceb58524 100644
                    {composerError !== null ? (
                      <Animated.View
                        className="shrink-0"
--- 
-2.56.0
-

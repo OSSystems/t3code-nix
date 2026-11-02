@@ -1,4 +1,4 @@
-From 6bdac411695ee251ad671646b451f53d40a39640 Mon Sep 17 00:00:00 2001
+From 22ba5a81fcd2847ac5c296bf4ba82ac78ed2ef30 Mon Sep 17 00:00:00 2001
 From: Otavio Salvador <otavio@ossystems.com.br>
 Date: Fri, 30 Oct 2026 07:59:53 -0300
 Subject: [PATCH 04/11] fix(acp): registry agents resolve their binary on the
@@ -58,7 +58,7 @@ index 0000000000..14524e244f
 +  );
 +});
 diff --git a/packages/provider-acp-registry/src/server/adapter.ts b/packages/provider-acp-registry/src/server/adapter.ts
-index 509f0c55cb..a5cc070b96 100644
+index 93a79589e4..8b955732a1 100644
 --- a/packages/provider-acp-registry/src/server/adapter.ts
 +++ b/packages/provider-acp-registry/src/server/adapter.ts
 @@ -130,6 +130,29 @@ export function acpRegistryPromptFailure(agentId: string, cause: unknown) {
@@ -142,6 +142,3 @@ index 509f0c55cb..a5cc070b96 100644
            ...(options.settings.authMethodId ? { authMethodId: options.settings.authMethodId } : {}),
            customModels: readCustomModelEntries(options.settings.customModels).map(
              (entry) => entry.slug,
--- 
-2.56.0
-

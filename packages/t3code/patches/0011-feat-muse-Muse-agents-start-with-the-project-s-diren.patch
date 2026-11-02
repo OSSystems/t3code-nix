@@ -1,4 +1,4 @@
-From 4ff3e4878e967457429d2d4ecc8b5a698f02ffed Mon Sep 17 00:00:00 2001
+From 9910f65dc9cd74333c7f2cf97ca9bf83b5281d59 Mon Sep 17 00:00:00 2001
 From: Otavio Salvador <otavio@ossystems.com.br>
 Date: Fri, 30 Oct 2026 09:10:55 -0300
 Subject: [PATCH 11/11] feat(muse): Muse agents start with the project's direnv
@@ -11,7 +11,7 @@ thread's direnv environment, so tools a project provides through its .envrc were
  1 file changed, 2 insertions(+), 1 deletion(-)
 
 diff --git a/packages/provider-muse/src/server/adapter.ts b/packages/provider-muse/src/server/adapter.ts
-index 40785df6ba..06215a0101 100644
+index f022bf407f..9b5092c202 100644
 --- a/packages/provider-muse/src/server/adapter.ts
 +++ b/packages/provider-muse/src/server/adapter.ts
 @@ -37,6 +37,7 @@ import * as Semaphore from "effect/Semaphore";
@@ -22,7 +22,7 @@ index 40785df6ba..06215a0101 100644
  import * as ProviderHost from "@t3tools/provider-core/server/ProviderHost";
  import * as McpProviderSession from "@t3tools/provider-core/server/mcpSession";
  import * as McpProviderSessions from "@t3tools/provider-core/server/McpProviderSessions";
-@@ -1664,7 +1665,7 @@ export const makeMuseAdapterV2 = Effect.fn("makeMuseAdapterV2")(function* (
+@@ -1663,7 +1664,7 @@ export const makeMuseAdapterV2 = Effect.fn("makeMuseAdapterV2")(function* (
          const epoch = ++hostEpoch;
          const mcpSession = yield* mcpSessions.read(input.threadId);
          const environment = McpProviderSession.withAgentDeviceEnvironment(
@@ -31,6 +31,3 @@ index 40785df6ba..06215a0101 100644
            mcpSession,
          );
          const launch = yield* agentScope.wrap({
--- 
-2.56.0
-

@@ -1,4 +1,4 @@
-From 38269b837dbb7e42ec516eb5177456476b5a6067 Mon Sep 17 00:00:00 2001
+From a6ed1e8807a5123ad9310bb299e55829fac6336f Mon Sep 17 00:00:00 2001
 From: Otavio Salvador <otavio@ossystems.com.br>
 Date: Fri, 30 Oct 2026 07:59:53 -0300
 Subject: [PATCH 03/11] fix(server): setup script terminals can unset variables
@@ -11,10 +11,10 @@ terminal launch needs a way to drop inherited keys, and a change to them counts 
  2 files changed, 25 insertions(+), 5 deletions(-)
 
 diff --git a/apps/server/src/terminal/Manager.test.ts b/apps/server/src/terminal/Manager.test.ts
-index e30a4cd3d7..aa4dbf3d8f 100644
+index 8e1a2d2f7e..84be8d884a 100644
 --- a/apps/server/src/terminal/Manager.test.ts
 +++ b/apps/server/src/terminal/Manager.test.ts
-@@ -1267,6 +1267,10 @@ it.layer(
+@@ -1824,6 +1824,10 @@ it.layer(
        });
        yield* manager.open(openInput());
        yield* manager.open(openInput({ terminalId: "explicit", env: { TMUX_PANE: "%9" } }));
@@ -25,7 +25,7 @@ index e30a4cd3d7..aa4dbf3d8f 100644
        const spawnInput = ptyAdapter.spawnInputs[0];
        expect(spawnInput).toBeDefined();
        if (!spawnInput) return;
-@@ -1280,6 +1284,7 @@ it.layer(
+@@ -1837,6 +1841,7 @@ it.layer(
        expect(spawnInput.env.ZELLIJ_SESSION_NAME).toBeUndefined();
        expect(spawnInput.env.ZELLIJ_CONFIG_DIR).toBe("/home/user/.config/zellij");
        expect(ptyAdapter.spawnInputs[1]?.env.TMUX_PANE).toBe("%9");
@@ -34,10 +34,10 @@ index e30a4cd3d7..aa4dbf3d8f 100644
    );
  
 diff --git a/apps/server/src/terminal/Manager.ts b/apps/server/src/terminal/Manager.ts
-index 4c5229a7ba..6fa79d5566 100644
+index 9d3942c6cb..b132c55332 100644
 --- a/apps/server/src/terminal/Manager.ts
 +++ b/apps/server/src/terminal/Manager.ts
-@@ -155,11 +155,16 @@ class TerminalProcessSignalError extends Schema.TaggedError<TerminalProcessSigna
+@@ -165,11 +165,16 @@ class TerminalProcessSignalError extends Schema.TaggedError<TerminalProcessSigna
    }
  }
  
@@ -54,8 +54,8 @@ index 4c5229a7ba..6fa79d5566 100644
 +      input: TerminalManagerOpenInput,
      ) => Effect.Effect<TerminalSessionSnapshot, TerminalError>;
  
-     /**
-@@ -291,6 +296,7 @@ interface TerminalSessionState {
+     readonly getShell: (input: TerminalObserveInput) => Effect.Effect<string, TerminalError>;
+@@ -304,6 +309,7 @@ interface TerminalSessionState {
    hasRunningSubprocess: boolean;
    childCommandLabel: string | null;
    runtimeEnv: Record<string, string> | null;
@@ -63,7 +63,7 @@ index 4c5229a7ba..6fa79d5566 100644
  }
  
  interface TerminalGrid {
-@@ -1359,6 +1365,7 @@ function stripAppImageRuntimeEnv(env: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
+@@ -1384,6 +1390,7 @@ function stripAppImageRuntimeEnv(env: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
  function createTerminalSpawnEnv(
    baseEnv: NodeJS.ProcessEnv,
    runtimeEnv: Record<string, string> | null | undefined,
@@ -71,7 +71,7 @@ index 4c5229a7ba..6fa79d5566 100644
    platform: NodeJS.Platform,
    home: string,
  ): NodeJS.ProcessEnv {
-@@ -1378,6 +1385,7 @@ function createTerminalSpawnEnv(
+@@ -1403,6 +1410,7 @@ function createTerminalSpawnEnv(
          key === "CODEX_HOME" || key === "CLAUDE_CONFIG_DIR" ? expandHomePath(value, home) : value;
      }
    }
@@ -79,7 +79,7 @@ index 4c5229a7ba..6fa79d5566 100644
    if (!spawnEnv.COLORTERM && runtimeEnv?.COLORTERM === undefined) {
      spawnEnv.COLORTERM = "truecolor";
    }
-@@ -1533,7 +1541,7 @@ export const makeWithOptions = Effect.fn("TerminalManager.makeWithOptions")(func
+@@ -1558,7 +1566,7 @@ export const makeWithOptions = Effect.fn("TerminalManager.makeWithOptions")(func
    const shellResolver = options.shellResolver ?? (() => defaultShellResolver(platform, baseEnv));
    const processRunner = yield* ProcessRunner.ProcessRunner;
    const resolveLaunchInputEnvironment = Effect.fn("terminal.resolveLaunchInputEnvironment")(
@@ -88,7 +88,7 @@ index 4c5229a7ba..6fa79d5566 100644
        input: Input,
      ): Effect.fn.Return<
        Input,
-@@ -2426,6 +2434,7 @@ export const makeWithOptions = Effect.fn("TerminalManager.makeWithOptions")(func
+@@ -2475,6 +2483,7 @@ export const makeWithOptions = Effect.fn("TerminalManager.makeWithOptions")(func
              const terminalEnv = createTerminalSpawnEnv(
                baseEnv,
                session.runtimeEnv,
@@ -96,7 +96,7 @@ index 4c5229a7ba..6fa79d5566 100644
                platform,
                yield* HostProcess.HomeDirectory,
              );
-@@ -2817,7 +2826,7 @@ export const makeWithOptions = Effect.fn("TerminalManager.makeWithOptions")(func
+@@ -2858,7 +2867,7 @@ export const makeWithOptions = Effect.fn("TerminalManager.makeWithOptions")(func
    );
  
    const openWithWorkspaceLease = Effect.fn("terminal.openLocked")(function* (
@@ -105,7 +105,7 @@ index 4c5229a7ba..6fa79d5566 100644
    ) {
      const terminalId = requestedInput.terminalId;
      yield* assertValidCwd(requestedInput.cwd);
-@@ -2864,6 +2873,7 @@ export const makeWithOptions = Effect.fn("TerminalManager.makeWithOptions")(func
+@@ -2906,6 +2915,7 @@ export const makeWithOptions = Effect.fn("TerminalManager.makeWithOptions")(func
          hasRunningSubprocess: false,
          childCommandLabel: null,
          runtimeEnv: normalizedRuntimeEnv(input.env),
@@ -113,7 +113,7 @@ index 4c5229a7ba..6fa79d5566 100644
        };
  
        const createdSession = session;
-@@ -2893,7 +2903,10 @@ export const makeWithOptions = Effect.fn("TerminalManager.makeWithOptions")(func
+@@ -2935,7 +2945,10 @@ export const makeWithOptions = Effect.fn("TerminalManager.makeWithOptions")(func
      const currentRuntimeEnv = liveSession.runtimeEnv;
      const targetCols = input.cols ?? liveSession.cols;
      const targetRows = input.rows ?? liveSession.rows;
@@ -125,7 +125,7 @@ index 4c5229a7ba..6fa79d5566 100644
      const nextWorktreePath =
        input.worktreePath !== undefined ? (input.worktreePath ?? null) : liveSession.worktreePath;
      const launchContextChanged =
-@@ -2906,6 +2919,7 @@ export const makeWithOptions = Effect.fn("TerminalManager.makeWithOptions")(func
+@@ -2948,6 +2961,7 @@ export const makeWithOptions = Effect.fn("TerminalManager.makeWithOptions")(func
        liveSession.cwd = input.cwd;
        liveSession.worktreePath = nextWorktreePath;
        liveSession.runtimeEnv = nextRuntimeEnv;
@@ -133,7 +133,7 @@ index 4c5229a7ba..6fa79d5566 100644
        liveSession.history.clear();
        liveSession.pendingHistoryControlSequence = "";
        liveSession.pendingProcessEvents = [];
-@@ -2914,6 +2928,7 @@ export const makeWithOptions = Effect.fn("TerminalManager.makeWithOptions")(func
+@@ -2956,6 +2970,7 @@ export const makeWithOptions = Effect.fn("TerminalManager.makeWithOptions")(func
        yield* persistHistory(liveSession.threadId, liveSession.terminalId, liveSession.history);
      } else if (liveSession.status === "exited" || liveSession.status === "error") {
        liveSession.runtimeEnv = nextRuntimeEnv;
@@ -141,7 +141,7 @@ index 4c5229a7ba..6fa79d5566 100644
        liveSession.worktreePath = nextWorktreePath;
        liveSession.history.clear();
        liveSession.pendingHistoryControlSequence = "";
-@@ -2944,7 +2959,7 @@ export const makeWithOptions = Effect.fn("TerminalManager.makeWithOptions")(func
+@@ -2986,7 +3001,7 @@ export const makeWithOptions = Effect.fn("TerminalManager.makeWithOptions")(func
      return snapshot(liveSession);
    });
  
@@ -150,6 +150,3 @@ index 4c5229a7ba..6fa79d5566 100644
      withWorkspaceLease(
        path.resolve(input.worktreePath ?? input.cwd),
        openWithWorkspaceLease(input),
--- 
-2.56.0
-
