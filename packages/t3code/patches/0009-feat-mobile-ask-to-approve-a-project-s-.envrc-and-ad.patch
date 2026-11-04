@@ -1,4 +1,4 @@
-From 0e52126e2319026028f8d40c7985d71e180d06fa Mon Sep 17 00:00:00 2001
+From 0ba058f8acb036e82ac23d61c1d914c246554e7f Mon Sep 17 00:00:00 2001
 From: Otavio Salvador <otavio@ossystems.com.br>
 Date: Fri, 30 Oct 2026 08:00:08 -0300
 Subject: [PATCH 09/11] feat(mobile): ask to approve a project's .envrc and add
@@ -15,10 +15,10 @@ settings page gains the project's direnv and trust-changes settings.
  create mode 100644 apps/mobile/src/features/threads/ProjectEnvironmentBanner.tsx
 
 diff --git a/apps/mobile/src/features/settings/SettingsServerControlsRouteScreen.tsx b/apps/mobile/src/features/settings/SettingsServerControlsRouteScreen.tsx
-index 91b0b1b044..51fbaf2ee9 100644
+index f35c6a29bd..5ea4ae6683 100644
 --- a/apps/mobile/src/features/settings/SettingsServerControlsRouteScreen.tsx
 +++ b/apps/mobile/src/features/settings/SettingsServerControlsRouteScreen.tsx
-@@ -68,6 +68,8 @@ const PAGE_PROJECT_KEYS: Record<SettingsPage, readonly ProjectScopedServerSettin
+@@ -72,6 +72,8 @@ const PAGE_PROJECT_KEYS: Record<SettingsPage, readonly ProjectScopedServerSettin
      "branchNamingMode",
      "branchNamePrefix",
      "branchNameInstructions",
@@ -27,7 +27,7 @@ index 91b0b1b044..51fbaf2ee9 100644
    ],
    maintenance: ["continueThreadsAfterServerUpdate"],
  };
-@@ -449,6 +451,24 @@ function ServerSettingsDetail(props: { readonly page: SettingsPage }) {
+@@ -483,6 +485,24 @@ function ServerSettingsDetail(props: { readonly page: SettingsPage }) {
                        />
                      ))}
                    </SettingsSection>
@@ -239,27 +239,27 @@ index 0000000000..e29bb7c5aa
 +  );
 +}
 diff --git a/apps/mobile/src/features/threads/ThreadDetailScreen.tsx b/apps/mobile/src/features/threads/ThreadDetailScreen.tsx
-index 870ab31f00..30232bedc7 100644
+index d0b08ce405..6a04f3ae50 100644
 --- a/apps/mobile/src/features/threads/ThreadDetailScreen.tsx
 +++ b/apps/mobile/src/features/threads/ThreadDetailScreen.tsx
-@@ -169,6 +169,7 @@ import type {
- } from "../../lib/threadActivity";
+@@ -175,6 +175,7 @@ import type {
  import { PendingApprovalCard } from "./PendingApprovalCard";
  import { ComposerErrorNotice } from "./ComposerErrorNotice";
+ import { ManagedRuntimeModeNotice } from "./ManagedRuntimeModeNotice";
 +import { ProjectEnvironmentBanner } from "./ProjectEnvironmentBanner";
  import { ComposerFeedback } from "./ComposerFeedback";
  import { ComposerUsageLimits } from "./ComposerUsageLimits";
  import { PendingUserInputCard } from "./PendingUserInputCard";
-@@ -1545,6 +1546,12 @@ function ThreadDetailBody(props: ThreadDetailScreenProps) {
-                       onDismiss={() => props.onDismissFeedback(submission.id)}
-                     />
-                   ))}
-+                  <ProjectEnvironmentBanner
-+                    className="shrink-0 px-4 pb-2"
-+                    environmentId={props.environmentId}
-+                    projectId={props.selectedThread.projectId}
-+                    threadId={props.selectedThread.id}
-+                  />
-                   {composerError !== null ? (
-                     <Animated.View
-                       className="shrink-0"
+@@ -1643,6 +1644,12 @@ function ThreadDetailBody(
+                         onDismiss={() => props.onDismissFeedback(submission.id)}
+                       />
+                     ))}
++                    <ProjectEnvironmentBanner
++                      className="shrink-0 px-4 pb-2"
++                      environmentId={props.environmentId}
++                      projectId={props.selectedThread.projectId}
++                      threadId={props.selectedThread.id}
++                    />
+                     {props.canOperateThread ? (
+                       <ManagedRuntimeModeNotice
+                         threadKey={selectedThreadKey}

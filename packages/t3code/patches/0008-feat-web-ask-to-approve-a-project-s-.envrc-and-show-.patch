@@ -1,4 +1,4 @@
-From d10109e7fde97f0273ffb59530d7d5c519f17a8d Mon Sep 17 00:00:00 2001
+From 74d102f5b561acc32d58311ee55b54698aeb1073 Mon Sep 17 00:00:00 2001
 From: Otavio Salvador <otavio@ossystems.com.br>
 Date: Fri, 30 Oct 2026 08:00:08 -0300
 Subject: [PATCH 08/11] feat(web): ask to approve a project's .envrc and show
@@ -21,7 +21,7 @@ Settings > Worktrees holds the project's direnv and trust-changes settings.
  create mode 100644 apps/web/src/components/settings/ProjectEnvironmentSettings.tsx
 
 diff --git a/apps/web/src/components/ChatView.tsx b/apps/web/src/components/ChatView.tsx
-index e15424cf09..5ee0939085 100644
+index d1225065ae..f06c3d4b18 100644
 --- a/apps/web/src/components/ChatView.tsx
 +++ b/apps/web/src/components/ChatView.tsx
 @@ -311,6 +311,7 @@ import { useProactivePanels } from "../hooks/useProactivePanels";
@@ -32,7 +32,7 @@ index e15424cf09..5ee0939085 100644
  import { modelFallbackBannerItem } from "./chat/ComposerUsageLimits";
  import { ComposerSurface } from "./chat/ComposerSurface";
  import { resolveThreadSyncPhase } from "../threadSync";
-@@ -1120,6 +1121,10 @@ export default function ChatView(props: ChatViewProps) {
+@@ -1105,6 +1106,10 @@ export default function ChatView(props: ChatViewProps) {
    const activeProjectScripts = activeProject ? resolveProjectScripts(settings, activeProject) : [];
    const { projectCloneBannerItem, projectCloneSendBlockReason } =
      useProjectCloneBanner(activeProjectRef);
@@ -43,7 +43,7 @@ index e15424cf09..5ee0939085 100644
    const activeProjectDefaultModelSelection =
      !isServerThread && draftFallback
        ? draftFallback.selection
-@@ -2620,6 +2625,8 @@ export default function ChatView(props: ChatViewProps) {
+@@ -2603,6 +2608,8 @@ export default function ChatView(props: ChatViewProps) {
      const limitRecoveryItems = limitRecoveryBanner === null ? [] : [limitRecoveryBanner];
      const usageLimitsItems = usageLimitsBanner === null ? [] : [usageLimitsBanner];
      const projectCloneItems = projectCloneBannerItem === null ? [] : [projectCloneBannerItem];
@@ -52,7 +52,7 @@ index e15424cf09..5ee0939085 100644
      if (!localCheckoutBranchMismatch || !showBranchMismatchBanner || !activeBranchMismatchKey) {
        return [
          ...feedbackBannerItems,
-@@ -2627,6 +2634,7 @@ export default function ChatView(props: ChatViewProps) {
+@@ -2610,6 +2617,7 @@ export default function ChatView(props: ChatViewProps) {
          ...limitRecoveryItems,
          ...usageLimitsItems,
          ...projectCloneItems,
@@ -60,7 +60,7 @@ index e15424cf09..5ee0939085 100644
          ...systemComposerBannerItems,
        ];
      }
-@@ -2636,6 +2644,7 @@ export default function ChatView(props: ChatViewProps) {
+@@ -2619,6 +2627,7 @@ export default function ChatView(props: ChatViewProps) {
        ...limitRecoveryItems,
        ...usageLimitsItems,
        ...projectCloneItems,
@@ -416,10 +416,10 @@ index a771e92cec..ba86b10fb5 100644
          <BranchNamingSettings />
        </SettingsSection>
 diff --git a/apps/web/src/components/settings/settingsSearch.ts b/apps/web/src/components/settings/settingsSearch.ts
-index 1d3c31909a..b50d999fbe 100644
+index 33d5d1d62f..00cd6d4edb 100644
 --- a/apps/web/src/components/settings/settingsSearch.ts
 +++ b/apps/web/src/components/settings/settingsSearch.ts
-@@ -606,13 +606,6 @@ export const SETTINGS_SEARCH_ITEMS = [
+@@ -618,13 +618,6 @@ export const SETTINGS_SEARCH_ITEMS = [
        "resume running active interrupted work restart reboot machine crash desktop update automatically",
      ],
    },
@@ -433,7 +433,7 @@ index 1d3c31909a..b50d999fbe 100644
    {
      id: "background-activity",
      title: "Background activity",
-@@ -1049,6 +1042,20 @@ export const SETTINGS_SEARCH_ITEMS = [
+@@ -1061,6 +1054,20 @@ export const SETTINGS_SEARCH_ITEMS = [
      to: "/settings/projects",
      searchTerms: ["commands scripts setup run dev server checkout worktree t3.json import"],
    },
