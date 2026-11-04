@@ -1,4 +1,4 @@
-From 87a85ed0126f4ca466cd28fed3a11da7ea68c601 Mon Sep 17 00:00:00 2001
+From d9d10e73947da6f82295b4b59b950f93a7a2dc95 Mon Sep 17 00:00:00 2001
 From: Otavio Salvador <otavio@ossystems.com.br>
 Date: Fri, 30 Oct 2026 08:00:08 -0300
 Subject: [PATCH 07/11] feat(server): worktree setup scripts start with the
@@ -15,7 +15,7 @@ stage and setup continues.
  4 files changed, 133 insertions(+), 2 deletions(-)
 
 diff --git a/apps/server/src/orchestration-v2/ThreadLaunchService.test.ts b/apps/server/src/orchestration-v2/ThreadLaunchService.test.ts
-index d3c62a7e13..d958da9a70 100644
+index 993ee5c301..726fa3e53a 100644
 --- a/apps/server/src/orchestration-v2/ThreadLaunchService.test.ts
 +++ b/apps/server/src/orchestration-v2/ThreadLaunchService.test.ts
 @@ -46,6 +46,8 @@ import * as SqlitePersistence from "../persistence/Sqlite.ts";
@@ -27,7 +27,7 @@ index d3c62a7e13..d958da9a70 100644
  import * as ManagedProjectFolders from "../project/ManagedProjectFolders.ts";
  import * as ProviderRegistryMock from "../provider/testUtils/providerRegistryMock.ts";
  import * as ServerSettings from "../serverSettings.ts";
-@@ -131,6 +133,9 @@ interface HarnessOptions {
+@@ -132,6 +134,9 @@ interface HarnessOptions {
    readonly serverSettings?: Parameters<typeof ServerSettings.layerTest>[0];
    readonly providers?: ReadonlyArray<ServerProvider>;
    readonly git?: Partial<GitWorkflow.GitWorkflowService["Service"]>;
@@ -37,7 +37,7 @@ index d3c62a7e13..d958da9a70 100644
  }
  
  function makeHarness(options: HarnessOptions = {}) {
-@@ -224,6 +229,7 @@ function makeHarness(options: HarnessOptions = {}) {
+@@ -230,6 +235,7 @@ function makeHarness(options: HarnessOptions = {}) {
          isScratchProject: () => Effect.succeed(false),
          folderForThread: () => Effect.succeedNone,
        }),
@@ -45,7 +45,7 @@ index d3c62a7e13..d958da9a70 100644
    );
    const layerLaunch = ThreadLaunch.layer.pipe(
      Layer.provide(
-@@ -2157,6 +2163,64 @@ it.effect("shared intake preserves durable attachment bytes after a lost launch
+@@ -2196,6 +2202,64 @@ it.effect("shared intake preserves durable attachment bytes after a lost launch
    }).pipe(Effect.provide(Layer.mergeAll(harness.layer, layerFiles)));
  });
  
@@ -111,7 +111,7 @@ index d3c62a7e13..d958da9a70 100644
    Effect.gen(function* () {
      const entered = yield* Deferred.make<void>();
 diff --git a/apps/server/src/orchestration-v2/ThreadLaunchService.ts b/apps/server/src/orchestration-v2/ThreadLaunchService.ts
-index b68eef4b2a..50531dff6a 100644
+index 7e7829ba94..5d8003286f 100644
 --- a/apps/server/src/orchestration-v2/ThreadLaunchService.ts
 +++ b/apps/server/src/orchestration-v2/ThreadLaunchService.ts
 @@ -40,9 +40,11 @@ import {
@@ -177,7 +177,7 @@ index b68eef4b2a..50531dff6a 100644
    const mapError =
      (input: PreparationInput, operation: ThreadLaunchError["operation"], threadId?: ThreadId) =>
      (cause: unknown) =>
-@@ -315,12 +357,18 @@ const make = Effect.gen(function* () {
+@@ -316,12 +358,18 @@ const make = Effect.gen(function* () {
      let runReleased = false;
      // Stop background renames before forgetting worktrees; completed renames record them again.
      let branchRename: Fiber.Fiber<unknown> | null = null;
@@ -197,7 +197,7 @@ index b68eef4b2a..50531dff6a 100644
          fiber: yield* Effect.fiber,
        });
      } else if (reused !== undefined) {
-@@ -328,7 +376,7 @@ const make = Effect.gen(function* () {
+@@ -329,7 +377,7 @@ const make = Effect.gen(function* () {
          threadId,
          branch: input.workspaceStrategy.branch ?? null,
          baseRef: reused.baseRef,
@@ -206,7 +206,7 @@ index b68eef4b2a..50531dff6a 100644
          fiber: yield* Effect.fiber,
        });
      }
-@@ -565,6 +613,10 @@ const make = Effect.gen(function* () {
+@@ -581,6 +629,10 @@ const make = Effect.gen(function* () {
            })
            .pipe(Effect.mapError(mapError(input, "update-thread", threadId)));
        }
@@ -217,7 +217,7 @@ index b68eef4b2a..50531dff6a 100644
        yield* setupTracker.stageStatus(threadId, "setup-script", "running");
        const setup =
          worktreePath === null
-@@ -575,6 +627,7 @@ const make = Effect.gen(function* () {
+@@ -591,6 +643,7 @@ const make = Effect.gen(function* () {
                  projectId: input.projectId,
                  projectCwd: project.workspaceRoot,
                  worktreePath,
@@ -226,7 +226,7 @@ index b68eef4b2a..50531dff6a 100644
                    ? {
                        observeCompletion: {
 diff --git a/apps/server/src/project/ProjectSetupScriptRunner.ts b/apps/server/src/project/ProjectSetupScriptRunner.ts
-index ec11ce9840..bfb085d16d 100644
+index 96b574f2f8..fcdb551043 100644
 --- a/apps/server/src/project/ProjectSetupScriptRunner.ts
 +++ b/apps/server/src/project/ProjectSetupScriptRunner.ts
 @@ -74,6 +74,8 @@ export interface ProjectSetupScriptRunnerInput {
@@ -239,7 +239,7 @@ index ec11ce9840..bfb085d16d 100644
  
  export class ProjectSetupScriptOperationError extends Schema.TaggedError<ProjectSetupScriptOperationError>()(
 @@ -433,7 +435,14 @@ export const make = Effect.gen(function* () {
-         ? `settle-${script.id}-${(yield* crypto.randomUUIDv4().pipe(Effect.orDie)).slice(0, 8)}`
+         ? `settle-${script.id}-${(yield* random.uuidV4()).slice(0, 8)}`
          : `setup-${script.id}`;
      const cwd = input.worktreePath;
 +    const direnvSet: Record<string, string> = {};
@@ -253,7 +253,7 @@ index ec11ce9840..bfb085d16d 100644
        ...projectScriptRuntimeEnv({
          project: { cwd: project.workspaceRoot },
          worktreePath: input.worktreePath,
-@@ -471,6 +480,7 @@ export const make = Effect.gen(function* () {
+@@ -469,6 +478,7 @@ export const make = Effect.gen(function* () {
            cwd,
            worktreePath: input.worktreePath,
            env: { ...env, NO_COLOR: "1", FORCE_COLOR: "0" },
