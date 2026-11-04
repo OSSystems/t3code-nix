@@ -1,5 +1,7 @@
 {
   lib,
+  callPackage,
+  chromium,
   cloudflared,
   fetchFromGitHub,
   fetchPnpmDeps,
@@ -10,6 +12,9 @@
 
 let
   version = "0.1.7";
+
+  browser = chromium;
+  browserProfileName = "t3-nix-${baseNameOf (toString browser.browser)}";
 
   src = fetchFromGitHub {
     owner = "pingdotgg";
@@ -37,6 +42,23 @@ let
     finalAttrs: oldAttrs: {
       inherit version src patches;
 
+      # Backport of https://github.com/NixOS/nixpkgs/pull/582335: the downloaded browser cannot run on
+      # NixOS. Keying the AppArmor profile by store path makes setup rerun after browser updates.
+      postPatch = (oldAttrs.postPatch or "") + ''
+        substituteInPlace apps/server/src/preview/PreviewBrowser.ts \
+          --replace-fail 'const executable = path.join(installRoot, release.version, executableName);' \
+                         'const executable = "${lib.getExe browser}";'
+
+        substituteInPlace apps/server/src/preview/PreviewBrowserHost.ts \
+          --replace-fail 't3-chrome-headless-shell' '${browserProfileName}' \
+          --replace-fail '/**/tools/chrome-headless-shell/*/*/chrome-headless-shell' \
+                         '${browser.browser}/libexec/chromium/chromium'
+
+        substituteInPlace apps/server/src/cli/browser.ts \
+          --replace-fail 'const browser = yield* installedBrowser(baseDirPath);' \
+                         'const browser = Option.some("${lib.getExe browser}");'
+      '';
+
       # Connect is disabled unless the public production identifiers are embedded at build time.
       preBuild = ''
         cp .env.example .env
@@ -54,6 +76,16 @@ let
           ;
         fetcherVersion = 4;
         hash = "sha256-uTgZxFRAW8EktSHo6pOZKWo2T3argSAFdW2nAsXkgqM=";
+      };
+
+      passthru = (oldAttrs.passthru or { }) // {
+        inherit browser;
+        tests = (oldAttrs.passthru.tests or { }) // {
+          browser = callPackage ./browser-test.nix {
+            inherit browser;
+            t3code = finalAttrs.finalPackage;
+          };
+        };
       };
     }
   );
