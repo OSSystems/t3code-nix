@@ -29,11 +29,11 @@ let
   archives = {
     x86_64-linux = {
       platform = "linux64";
-      sha256 = "a313da592261ff1e342c1e507d315f25b1809006c0508f77ce86151d464d4ccb";
+      sha256 = "547dcd374e02961bf998f6046a267644f8502225c36bb78ca307dab32a0b3eb4";
     };
     aarch64-linux = {
       platform = "linux-arm64";
-      sha256 = "dca11213d2e0b1db52141edd9f92ec423fd52ca25715846790d84fa1d5d16e8a";
+      sha256 = "5bb6a00a4285c13303d3f72c5afdb70f144ea7a93eed462365a52b69631c9607";
     };
   };
   archive =
@@ -42,7 +42,7 @@ let
 in
 stdenv.mkDerivation (finalAttrs: {
   pname = "chrome-headless-shell";
-  version = "156.0.8078.70";
+  version = "156.0.8078.80";
 
   src = fetchurl {
     url = "https://storage.googleapis.com/chrome-for-testing-public/${finalAttrs.version}/${archive.platform}/chrome-headless-shell-${archive.platform}.zip";
