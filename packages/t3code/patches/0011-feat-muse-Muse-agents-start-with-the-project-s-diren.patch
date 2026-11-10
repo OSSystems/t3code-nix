@@ -1,7 +1,7 @@
-From 56d5e59a826598911f85805a8ea8b9386d496efd Mon Sep 17 00:00:00 2001
+From 1b9480f6883f1efacaa0ad71db557b576ecbb598 Mon Sep 17 00:00:00 2001
 From: Otavio Salvador <otavio@ossystems.com.br>
 Date: Fri, 30 Oct 2026 09:10:55 -0300
-Subject: [PATCH 11/11] feat(muse): Muse agents start with the project's direnv
+Subject: [PATCH 11/12] feat(muse): Muse agents start with the project's direnv
  environment
 
 Muse launches its own process but was the one process-based provider still started without the
@@ -11,10 +11,10 @@ thread's direnv environment, so tools a project provides through its .envrc were
  1 file changed, 2 insertions(+), 1 deletion(-)
 
 diff --git a/packages/provider-muse/src/server/adapter.ts b/packages/provider-muse/src/server/adapter.ts
-index 354e457b2c..497e0e7c83 100644
+index 82e1adcb42..fbb261d75f 100644
 --- a/packages/provider-muse/src/server/adapter.ts
 +++ b/packages/provider-muse/src/server/adapter.ts
-@@ -37,6 +37,7 @@ import * as Semaphore from "effect/Semaphore";
+@@ -39,6 +39,7 @@ import * as Semaphore from "effect/Semaphore";
  import * as Scope from "effect/Scope";
  import * as Stream from "effect/Stream";
  
@@ -22,7 +22,7 @@ index 354e457b2c..497e0e7c83 100644
  import * as ProviderHost from "@t3tools/provider-core/server/ProviderHost";
  import * as McpProviderSession from "@t3tools/provider-core/server/mcpSession";
  import * as McpProviderSessions from "@t3tools/provider-core/server/McpProviderSessions";
-@@ -1677,7 +1678,7 @@ export const makeMuseAdapterV2 = Effect.fn("makeMuseAdapterV2")(function* (
+@@ -1766,7 +1767,7 @@ export const makeMuseAdapterV2 = Effect.fn("makeMuseAdapterV2")(function* (
          const epoch = ++hostEpoch;
          const mcpSession = yield* mcpSessions.read(input.threadId);
          const environment = McpProviderSession.withAgentDeviceEnvironment(
@@ -31,3 +31,6 @@ index 354e457b2c..497e0e7c83 100644
            mcpSession,
          );
          const launch = yield* agentScope.wrap({
+-- 
+2.56.0
+

@@ -1,7 +1,7 @@
-From 2a7d344b0ff5fcfa7f7e58633b97a3ec0bee3068 Mon Sep 17 00:00:00 2001
+From 5f54c9dd761360270b381a95ffdb12859605dc30 Mon Sep 17 00:00:00 2001
 From: Otavio Salvador <otavio@ossystems.com.br>
 Date: Fri, 30 Oct 2026 08:00:08 -0300
-Subject: [PATCH 06/11] feat: approve a project's .envrc once and load it
+Subject: [PATCH 06/12] feat: approve a project's .envrc once and load it
  automatically
 
 Loading only .envrc files allowed from a shell left every new worktree blocked until a setup
@@ -46,18 +46,18 @@ idle, so turns and background work in threads sharing the process are never cut 
  create mode 100644 packages/client-runtime/src/state/projectEnvironment.ts
 
 diff --git a/apps/mobile/src/features/threads/thread-work-log.tsx b/apps/mobile/src/features/threads/thread-work-log.tsx
-index f5abb26eca..609eeafe4a 100644
+index ccfe91d211..f3e2c00200 100644
 --- a/apps/mobile/src/features/threads/thread-work-log.tsx
 +++ b/apps/mobile/src/features/threads/thread-work-log.tsx
-@@ -33,7 +33,6 @@ import {
+@@ -32,7 +32,6 @@ import {
  } from "react";
  import {
    Animated as NativeAnimated,
 -  Alert,
    type ColorValue,
-   Easing,
    Pressable,
-@@ -54,6 +53,10 @@ import { useAtomValue } from "@effect/atom-react";
+   ScrollView,
+@@ -52,6 +51,10 @@ import { useAtomValue } from "@effect/atom-react";
  import { scopeThreadRef } from "@t3tools/client-runtime/environment";
  import { environmentThreadDetails, threadEnvironment } from "../../state/threads";
  import { useAtomCommand } from "../../state/use-atom-command";
@@ -68,7 +68,7 @@ index f5abb26eca..609eeafe4a 100644
  import { toolActivityFaviconUrl } from "@t3tools/shared/favicon";
  import { isJavaScriptReplTool } from "@t3tools/shared/toolActivity";
  import { useMarkdownCodeHighlight } from "./markdownCodeHighlightState";
-@@ -907,53 +910,28 @@ function ReplCodeText({
+@@ -832,53 +835,28 @@ function ToolCodeText({
    );
  }
  
@@ -134,7 +134,7 @@ index f5abb26eca..609eeafe4a 100644
      </Pressable>
    );
  }
-@@ -1222,10 +1200,9 @@ const ThreadWorkLogRow = function ThreadWorkLogRow(
+@@ -1147,10 +1125,9 @@ const ThreadWorkLogRow = function ThreadWorkLogRow(
          <View className="shrink-0 flex-row items-center gap-px">
            {row.projectedItem.item.type === "system_notice" &&
            row.projectedItem.item.action?.type === "direnv.allow" ? (
@@ -179,11 +179,11 @@ index 0000000000..5c3ad27ae0
 +    }),
 +});
 diff --git a/apps/server/src/auth/RpcAuthorization.ts b/apps/server/src/auth/RpcAuthorization.ts
-index ec3b80e15f..36214601ce 100644
+index 40de9f9264..dd696dc73f 100644
 --- a/apps/server/src/auth/RpcAuthorization.ts
 +++ b/apps/server/src/auth/RpcAuthorization.ts
-@@ -169,7 +169,8 @@ export const RPC_REQUIRED_SCOPES = {
-   [WS_METHODS.subscribeVcsStatus]: AuthOrchestrationReadScope,
+@@ -175,7 +175,8 @@ export const RPC_REQUIRED_SCOPES = {
+   [WS_METHODS.vcsRefreshBranch]: AuthOrchestrationReadScope,
    [WS_METHODS.subscribeWorktreeSetup]: AuthOrchestrationReadScope,
    [WS_METHODS.worktreeSetupCancel]: AuthOrchestrationOperateScope,
 -  [WS_METHODS.projectEnvironmentAllowDirenv]: AuthOrchestrationOperateScope,
@@ -193,10 +193,10 @@ index ec3b80e15f..36214601ce 100644
    [WS_METHODS.vcsRefreshStatus]: AuthOrchestrationReadScope,
    [WS_METHODS.gitResolvePullRequest]: AuthOrchestrationReadScope,
 diff --git a/apps/server/src/observability/RpcInstrumentation.ts b/apps/server/src/observability/RpcInstrumentation.ts
-index d1040c6123..dbca16c1d7 100644
+index 89294ca67f..e9f632dcb3 100644
 --- a/apps/server/src/observability/RpcInstrumentation.ts
 +++ b/apps/server/src/observability/RpcInstrumentation.ts
-@@ -153,7 +153,8 @@ const RPC_AGGREGATES = {
+@@ -159,7 +159,8 @@ const RPC_AGGREGATES = {
    [WS_METHODS.projectsSearchContents]: "workspace",
    [WS_METHODS.projectsSearchEntries]: "workspace",
    [WS_METHODS.projectsWriteFile]: "workspace",
@@ -207,10 +207,10 @@ index d1040c6123..dbca16c1d7 100644
    [WS_METHODS.projectsCreateNew]: "orchestration",
    [WS_METHODS.projectsCreateFromThread]: "orchestration",
 diff --git a/apps/server/src/orchestration-v2/ProviderSessionManager.test.ts b/apps/server/src/orchestration-v2/ProviderSessionManager.test.ts
-index 9cc48b4ef2..c9f67ad581 100644
+index 5603c25784..373f50a7c8 100644
 --- a/apps/server/src/orchestration-v2/ProviderSessionManager.test.ts
 +++ b/apps/server/src/orchestration-v2/ProviderSessionManager.test.ts
-@@ -35,6 +35,7 @@ import { HttpServer } from "effect/http";
+@@ -36,6 +36,7 @@ import { HttpServer } from "effect/http";
  
  import { ProviderWorkspaceMissingError } from "../provider/Errors.ts";
  import * as DirenvEnvironment from "../provider/DirenvEnvironment.ts";
@@ -218,7 +218,7 @@ index 9cc48b4ef2..c9f67ad581 100644
  import * as ServerEnvironment from "../environment/ServerEnvironment.ts";
  import * as ProjectService from "../project/ProjectService.ts";
  import * as McpProviderSession from "@t3tools/provider-core/server/mcpSession";
-@@ -591,7 +592,9 @@ function layerTest(input: {
+@@ -607,7 +608,9 @@ function layerTest(input: {
    readonly scopeCloseReached?: Deferred.Deferred<void>;
    readonly serverSettingsLayer?: ReturnType<typeof ServerSettings.layerTest>;
    readonly projectServiceLayer?: Layer.Layer<ProjectService.ProjectService>;
@@ -229,7 +229,7 @@ index 9cc48b4ef2..c9f67ad581 100644
  }) {
    const layerConfiguredEventSink =
      input.flakyReleaseWrites !== undefined
-@@ -3976,12 +3979,30 @@ function runDirenvScenario(
+@@ -4500,12 +4503,30 @@ function runDirenvScenario(
        ProviderAdapter.ProviderAdapterV2SessionRuntime,
        ProviderSessionManager.ProviderSessionManagerV2Error
      >;
@@ -261,7 +261,7 @@ index 9cc48b4ef2..c9f67ad581 100644
      const loads = yield* Ref.make<
        ReadonlyArray<DirenvEnvironment.DirenvEnvironmentDiff | undefined>
      >([]);
-@@ -3991,13 +4012,35 @@ function runDirenvScenario(
+@@ -4515,13 +4536,35 @@ function runDirenvScenario(
      const direnvLayer = Layer.succeed(
        DirenvEnvironment.DirenvEnvironment,
        DirenvEnvironment.DirenvEnvironment.of({
@@ -303,7 +303,7 @@ index 9cc48b4ef2..c9f67ad581 100644
      );
      const beforeOpen = () =>
        Ref.update(openedWith, (current) => [
-@@ -4014,18 +4057,42 @@ function runDirenvScenario(
+@@ -4538,18 +4581,42 @@ function runDirenvScenario(
          providerInstanceId: modelSelection.instanceId,
          threadId,
        });
@@ -348,7 +348,7 @@ index 9cc48b4ef2..c9f67ad581 100644
        openedWith: yield* Ref.get(openedWith),
      };
    });
-@@ -4072,11 +4139,14 @@ it.effect(
+@@ -4596,11 +4663,14 @@ it.effect(
        const result = yield* runDirenvScenario(
          [
            { _tag: "Loaded", diff: before, changed: true },
@@ -364,7 +364,7 @@ index 9cc48b4ef2..c9f67ad581 100644
              const second = yield* open;
              assert.notStrictEqual(first, second);
            }),
-@@ -4084,7 +4154,178 @@ it.effect(
+@@ -4608,7 +4678,178 @@ it.effect(
        assert.equal(result.state.openCount, 2);
        assert.deepStrictEqual(result.openedWith, [before, after]);
        // The restart reuses the environment the check loaded instead of evaluating again.
@@ -545,10 +545,10 @@ index 9cc48b4ef2..c9f67ad581 100644
  );
  
 diff --git a/apps/server/src/orchestration-v2/ProviderSessionManager.ts b/apps/server/src/orchestration-v2/ProviderSessionManager.ts
-index 4ee7956425..8622fc72b5 100644
+index 04cdbb40e0..a6a019fcc9 100644
 --- a/apps/server/src/orchestration-v2/ProviderSessionManager.ts
 +++ b/apps/server/src/orchestration-v2/ProviderSessionManager.ts
-@@ -44,6 +44,7 @@ import { ProviderWorkspaceMissingError } from "../provider/Errors.ts";
+@@ -46,6 +46,7 @@ import { ProviderWorkspaceMissingError } from "../provider/Errors.ts";
  import * as ProjectService from "../project/ProjectService.ts";
  import * as McpProviderSessions from "@t3tools/provider-core/server/McpProviderSessions";
  import * as DirenvEnvironment from "../provider/DirenvEnvironment.ts";
@@ -556,9 +556,9 @@ index 4ee7956425..8622fc72b5 100644
  import * as ServerSettings from "../serverSettings.ts";
  import * as McpSessionRegistry from "../mcp/McpSessionRegistry.ts";
  import * as EventSink from "./EventSink.ts";
-@@ -403,17 +404,18 @@ export const layerWithOptions = (
-         },
-       );
+@@ -432,17 +433,18 @@ export const layerWithOptions = (
+         );
+       });
        const direnv = yield* Effect.serviceOption(DirenvEnvironment.DirenvEnvironment);
 +      const projectEnvironment = yield* Effect.serviceOption(
 +        ProjectEnvironmentService.ProjectEnvironmentService,
@@ -581,7 +581,7 @@ index 4ee7956425..8622fc72b5 100644
              { cause },
            ).pipe(Effect.as(false)),
          ),
-@@ -449,7 +451,7 @@ export const layerWithOptions = (
+@@ -478,7 +480,7 @@ export const layerWithOptions = (
          DirenvEnvironment.setThreadDirenvEnvironment(threadId, preloaded);
          if (cwd === null) return null;
          if (preloaded !== undefined) return { cwd, diff: preloaded } as SessionDirenvEnvironment;
@@ -590,7 +590,7 @@ index 4ee7956425..8622fc72b5 100644
          const result = yield* direnv.value.load(cwd);
          yield* Effect.annotateCurrentSpan({ "provider.direnv.result": result._tag });
          recordDirenvResult(threadId, result);
-@@ -458,17 +460,16 @@ export const layerWithOptions = (
+@@ -487,17 +489,16 @@ export const layerWithOptions = (
          return { cwd, diff } as SessionDirenvEnvironment;
        });
        /**
@@ -613,7 +613,7 @@ index 4ee7956425..8622fc72b5 100644
            const previous = entry.direnv?.cwd === cwd ? loaded : undefined;
            const result = yield* direnv.value.load(cwd, previous);
            yield* Effect.annotateCurrentSpan({ "provider.direnv.refresh": result._tag });
-@@ -2258,16 +2259,45 @@ export const layerWithOptions = (
+@@ -2521,16 +2522,45 @@ export const layerWithOptions = (
                      cause: `Provider ${existing.runtime.driver} does not support attaching multiple app threads to one session.`,
                    });
                  }
@@ -669,7 +669,7 @@ index 4ee7956425..8622fc72b5 100644
                    // Joining a shared session is a new session for this thread.
                    if (!attached) yield* agentScope.clear(input.threadId);
                    yield* ensureThreadAttached({
-@@ -2278,15 +2308,9 @@ export const layerWithOptions = (
+@@ -2541,15 +2571,9 @@ export const layerWithOptions = (
                    yield* touchActivity(input.providerSessionId);
                    return existing.exposedRuntime;
                  }
@@ -1506,10 +1506,10 @@ index 7cb6798076..88ecd75fb5 100644
  
  export const layer = Layer.effect(DirenvEnvironment, make());
 diff --git a/apps/server/src/server.ts b/apps/server/src/server.ts
-index 69b5ee8097..8a1221d955 100644
+index 116bb1d3af..e88b3cb8db 100644
 --- a/apps/server/src/server.ts
 +++ b/apps/server/src/server.ts
-@@ -89,6 +89,7 @@ import * as ServerBrowserStream from "./preview/ServerBrowserStream.ts";
+@@ -96,6 +96,7 @@ import * as ServerBrowserStream from "./preview/ServerBrowserStream.ts";
  import * as PreviewBrowser from "./preview/PreviewBrowser.ts";
  import * as ProcessRunner from "./processRunner.ts";
  import * as DirenvEnvironment from "./provider/DirenvEnvironment.ts";
@@ -1517,7 +1517,7 @@ index 69b5ee8097..8a1221d955 100644
  import * as GitManager from "./git/GitManager.ts";
  import * as EnvironmentTheme from "./environmentTheme.ts";
  import * as Keybindings from "./keybindings.ts";
-@@ -561,6 +562,12 @@ const layerScheduledTaskWebhookOrigin = Layer.effect(
+@@ -566,6 +567,12 @@ const layerScheduledTaskWebhookOrigin = Layer.effect(
  );
  
  const layerOrchestrationV2Runtime = RuntimeLayer.layerProduction.pipe(
@@ -1531,10 +1531,10 @@ index 69b5ee8097..8a1221d955 100644
    Layer.provide(layerScheduledTaskWebhookOrigin),
    Layer.provide(ProviderUsageAnalytics.layer),
 diff --git a/apps/server/src/ws.ts b/apps/server/src/ws.ts
-index cf2cec2caa..ef4fe29ff5 100644
+index 133b2db47d..1dba249f07 100644
 --- a/apps/server/src/ws.ts
 +++ b/apps/server/src/ws.ts
-@@ -219,7 +219,7 @@ import { threadWorkspaceRoot } from "./project/threadWorkspaceRoot.ts";
+@@ -221,7 +221,7 @@ import { threadWorkspaceRoot } from "./project/threadWorkspaceRoot.ts";
  import * as ManagedProjectFolders from "./project/ManagedProjectFolders.ts";
  import * as ScratchThreadPromotion from "./project/ScratchThreadPromotion.ts";
  import { mutateProjectWithClone } from "./project/ProjectMutation.ts";
@@ -1543,7 +1543,7 @@ index cf2cec2caa..ef4fe29ff5 100644
  import * as ProjectCloneTracker from "./project/ProjectCloneTracker.ts";
  import * as RepositoryIdentityResolver from "./project/RepositoryIdentityResolver.ts";
  import * as WorktreeSetupTracker from "./project/WorktreeSetupTracker.ts";
-@@ -1432,38 +1432,9 @@ export const layerWsRpc = (
+@@ -1483,38 +1483,9 @@ export const layerWsRpc = (
        const repositoryIdentityResolver =
          yield* RepositoryIdentityResolver.RepositoryIdentityResolver;
        const projectEnrichment = yield* ProjectEnrichmentService.ProjectEnrichmentService;
@@ -1585,7 +1585,7 @@ index cf2cec2caa..ef4fe29ff5 100644
        const agentSessionScanner = yield* AgentSessionScanner.AgentSessionScanner;
        const agentSessionImporter = yield* AgentSessionImporter.AgentSessionImporter;
        const checkpointDiffQuery = yield* CheckpointDiffQuery.CheckpointDiffQuery;
-@@ -3091,7 +3062,22 @@ export const layerWsRpc = (
+@@ -3183,7 +3154,22 @@ export const layerWsRpc = (
            worktreeSetupTracker
              .cancel(input.threadId)
              .pipe(Effect.map((cancelled) => ({ cancelled }))),
@@ -1748,10 +1748,10 @@ index 0000000000..5c3ad27ae0
 +    }),
 +});
 diff --git a/packages/client-runtime/package.json b/packages/client-runtime/package.json
-index 6fd4550d93..180e787cf4 100644
+index 4d1aedd477..ced16e1a46 100644
 --- a/packages/client-runtime/package.json
 +++ b/packages/client-runtime/package.json
-@@ -143,6 +143,10 @@
+@@ -151,6 +151,10 @@
        "types": "./src/relay/index.ts",
        "default": "./src/relay/index.ts"
      },
@@ -1763,10 +1763,10 @@ index 6fd4550d93..180e787cf4 100644
        "types": "./src/state/auth.ts",
        "default": "./src/state/auth.ts"
 diff --git a/packages/client-runtime/src/state/commandPermissions.test.ts b/packages/client-runtime/src/state/commandPermissions.test.ts
-index 434fed7c7f..7c2f2a281f 100644
+index 0566ad651c..c944fa6649 100644
 --- a/packages/client-runtime/src/state/commandPermissions.test.ts
 +++ b/packages/client-runtime/src/state/commandPermissions.test.ts
-@@ -156,11 +156,11 @@ describe("command permissions", () => {
+@@ -183,11 +183,11 @@ describe("command permissions", () => {
      ),
    );
  
@@ -1986,10 +1986,10 @@ index 0000000000..1410275293
 +  return lines;
 +}
 diff --git a/packages/client-runtime/src/state/threadCommands.ts b/packages/client-runtime/src/state/threadCommands.ts
-index 7c3e36323e..88a5759c5e 100644
+index d3344081b8..3761d0fa6e 100644
 --- a/packages/client-runtime/src/state/threadCommands.ts
 +++ b/packages/client-runtime/src/state/threadCommands.ts
-@@ -373,10 +373,6 @@ export function createThreadEnvironmentAtoms<R, E>(
+@@ -381,10 +381,6 @@ export function createThreadEnvironmentAtoms<R, E>(
        scheduler,
        concurrency,
      }),
@@ -2001,10 +2001,10 @@ index 7c3e36323e..88a5759c5e 100644
    const optimistic = createOptimisticThreadLifecycle(snapshotAtom);
    return {
 diff --git a/packages/contracts/src/clientRpcPermissions.ts b/packages/contracts/src/clientRpcPermissions.ts
-index d342688d9c..fd7046db0e 100644
+index 66248754ee..12a1d420a3 100644
 --- a/packages/contracts/src/clientRpcPermissions.ts
 +++ b/packages/contracts/src/clientRpcPermissions.ts
-@@ -61,7 +61,7 @@ export const CLIENT_GUARDED_RPC_SCOPES = {
+@@ -68,7 +68,7 @@ export const CLIENT_GUARDED_RPC_SCOPES = {
    [WS_METHODS.scheduledTasksDelete]: AuthOrchestrationOperateScope,
    [WS_METHODS.scheduledTasksRunNow]: AuthOrchestrationOperateScope,
    [WS_METHODS.scheduledTasksRotateWebhookToken]: AuthOrchestrationOperateScope,
@@ -2084,10 +2084,10 @@ index 37a2292453..1f0c69bead 100644
 -export type ProjectEnvironmentAllowDirenvResult = typeof ProjectEnvironmentAllowDirenvResult.Type;
 +export type ProjectEnvironmentApproveResult = typeof ProjectEnvironmentApproveResult.Type;
 diff --git a/packages/contracts/src/rpc.ts b/packages/contracts/src/rpc.ts
-index 9cb8b823ab..f10eb4a74a 100644
+index 3b8955b0c7..04c993b9ee 100644
 --- a/packages/contracts/src/rpc.ts
 +++ b/packages/contracts/src/rpc.ts
-@@ -117,8 +117,10 @@ import {
+@@ -118,8 +118,10 @@ import {
    OrchestrationGetTurnDiffError,
  } from "./checkpointDiff.ts";
  import {
@@ -2100,8 +2100,8 @@ index 9cb8b823ab..f10eb4a74a 100644
  } from "./projectEnvironment.ts";
  import {
    WorktreeSetupCancelInput,
-@@ -608,7 +610,8 @@ export const WS_METHODS = {
-   subscribeVcsStatus: "subscribeVcsStatus",
+@@ -620,7 +622,8 @@ export const WS_METHODS = {
+   vcsRefreshBranch: "vcs.refreshBranch",
    subscribeWorktreeSetup: "subscribeWorktreeSetup",
    worktreeSetupCancel: "worktreeSetup.cancel",
 -  projectEnvironmentAllowDirenv: "projectEnvironment.allowDirenv",
@@ -2110,7 +2110,7 @@ index 9cb8b823ab..f10eb4a74a 100644
    subscribeTerminalMetadata: "subscribeTerminalMetadata",
    subscribePreviewEvents: "subscribePreviewEvents",
    subscribeDiscoveredLocalServers: "subscribeDiscoveredLocalServers",
-@@ -1482,9 +1485,15 @@ const WsWorktreeSetupCancelRpc = Rpc.make(WS_METHODS.worktreeSetupCancel, {
+@@ -1532,9 +1535,15 @@ const WsWorktreeSetupCancelRpc = Rpc.make(WS_METHODS.worktreeSetupCancel, {
    error: EnvironmentAuthorizationError,
  });
  
@@ -2129,8 +2129,8 @@ index 9cb8b823ab..f10eb4a74a 100644
    error: EnvironmentAuthorizationError,
  });
  
-@@ -2141,7 +2150,8 @@ export const WsRpcGroup = RpcGroup.make(
-   WsSubscribeVcsStatusRpc,
+@@ -2223,7 +2232,8 @@ export const WsRpcGroup = RpcGroup.make(
+   WsVcsRefreshBranchRpc,
    WsSubscribeWorktreeSetupRpc,
    WsWorktreeSetupCancelRpc,
 -  WsProjectEnvironmentAllowDirenvRpc,
@@ -2140,10 +2140,10 @@ index 9cb8b823ab..f10eb4a74a 100644
    WsVcsRefreshStatusRpc,
    WsGitRunStackedActionRpc,
 diff --git a/packages/contracts/src/settings.ts b/packages/contracts/src/settings.ts
-index c0d72a051e..6799d4a529 100644
+index e95bb83a2f..548dd70f4b 100644
 --- a/packages/contracts/src/settings.ts
 +++ b/packages/contracts/src/settings.ts
-@@ -1037,6 +1037,7 @@ export const PROJECT_SCOPED_SERVER_SETTING_KEYS = [
+@@ -1154,6 +1154,7 @@ export const PROJECT_SCOPED_SERVER_SETTING_KEYS = [
    "enableAgentBrowserAccess",
    "enableAgentDeviceAccess",
    "enableDirenvEnvironment",
@@ -2151,7 +2151,7 @@ index c0d72a051e..6799d4a529 100644
    "textGenerationModelSelection",
    "threadTitleInstructions",
    "sourceControlWriterModelSelection",
-@@ -1075,6 +1076,7 @@ export const ProjectSettingsOverrides = Schema.Struct({
+@@ -1193,6 +1194,7 @@ export const ProjectSettingsOverrides = Schema.Struct({
    enableAgentBrowserAccess: Schema.optionalKey(Schema.Boolean),
    enableAgentDeviceAccess: Schema.optionalKey(Schema.Boolean),
    enableDirenvEnvironment: Schema.optionalKey(Schema.Boolean),
@@ -2159,7 +2159,7 @@ index c0d72a051e..6799d4a529 100644
    textGenerationModelSelection: Schema.optionalKey(ModelSelection),
    threadTitleInstructions: Schema.optionalKey(TrimmedString),
    sourceControlWriterModelSelection: Schema.optionalKey(Schema.NullOr(ModelSelection)),
-@@ -1242,11 +1244,13 @@ export const ServerSettings = Schema.Struct({
+@@ -1407,11 +1409,13 @@ export const ServerSettings = Schema.Struct({
  
    enableAgentDeviceAccess: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(false))),
    /**
@@ -2176,7 +2176,7 @@ index c0d72a051e..6799d4a529 100644
    /** Enabling the Device panel must not grant providers device control. */
    enableDeviceSupport: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(false))),
    deviceOnboardingCompleted: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(false))),
-@@ -1650,6 +1654,7 @@ export const ServerSettingsPatch = Schema.Struct({
+@@ -1853,6 +1857,7 @@ export const ServerSettingsPatch = Schema.Struct({
    ),
    enableAgentDeviceAccess: Schema.optionalKey(Schema.Boolean),
    enableDirenvEnvironment: Schema.optionalKey(Schema.Boolean),
@@ -2184,3 +2184,6 @@ index c0d72a051e..6799d4a529 100644
    enableDeviceSupport: Schema.optionalKey(Schema.Boolean),
    deviceOnboardingCompleted: Schema.optionalKey(Schema.Boolean),
    deviceHosts: Schema.optionalKey(SshDeviceHostConfigs),
+-- 
+2.56.0
+

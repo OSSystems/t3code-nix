@@ -1,7 +1,7 @@
-From 0ba058f8acb036e82ac23d61c1d914c246554e7f Mon Sep 17 00:00:00 2001
+From e77e6190169b044179be5fce4dd8c48ae82fa68e Mon Sep 17 00:00:00 2001
 From: Otavio Salvador <otavio@ossystems.com.br>
 Date: Fri, 30 Oct 2026 08:00:08 -0300
-Subject: [PATCH 09/11] feat(mobile): ask to approve a project's .envrc and add
+Subject: [PATCH 09/12] feat(mobile): ask to approve a project's .envrc and add
  direnv settings
 
 The new task and thread screens show the same approval banner as the web, and the worktrees
@@ -15,10 +15,10 @@ settings page gains the project's direnv and trust-changes settings.
  create mode 100644 apps/mobile/src/features/threads/ProjectEnvironmentBanner.tsx
 
 diff --git a/apps/mobile/src/features/settings/SettingsServerControlsRouteScreen.tsx b/apps/mobile/src/features/settings/SettingsServerControlsRouteScreen.tsx
-index f35c6a29bd..5ea4ae6683 100644
+index 793e3ae754..fce81a732d 100644
 --- a/apps/mobile/src/features/settings/SettingsServerControlsRouteScreen.tsx
 +++ b/apps/mobile/src/features/settings/SettingsServerControlsRouteScreen.tsx
-@@ -72,6 +72,8 @@ const PAGE_PROJECT_KEYS: Record<SettingsPage, readonly ProjectScopedServerSettin
+@@ -69,6 +69,8 @@ const PAGE_PROJECT_KEYS: Record<SettingsPage, readonly ProjectScopedServerSettin
      "branchNamingMode",
      "branchNamePrefix",
      "branchNameInstructions",
@@ -27,36 +27,36 @@ index f35c6a29bd..5ea4ae6683 100644
    ],
    maintenance: ["continueThreadsAfterServerUpdate"],
  };
-@@ -483,6 +485,24 @@ function ServerSettingsDetail(props: { readonly page: SettingsPage }) {
-                       />
-                     ))}
-                   </SettingsSection>
-+                  <SettingsSection title="direnv environment">
-+                    <SettingsSwitchRow
-+                      icon="terminal"
-+                      label="Load direnv environment"
-+                      subtitle="Load the project's .envrc for agents and worktree setup scripts. T3 Code asks before loading each new .envrc."
-+                      value={uniform("enableDirenvEnvironment")}
-+                      disabled={disabledFor("enableDirenvEnvironment")}
-+                      onValueChange={(value) => write({ enableDirenvEnvironment: value })}
-+                    />
-+                    <SettingsSwitchRow
-+                      icon="checkmark.circle"
-+                      label="Trust .envrc changes"
-+                      subtitle="Approve changes to an approved .envrc without asking. Only for repositories you fully control."
-+                      value={uniform("trustDirenvChanges")}
-+                      disabled={disabledFor("trustDirenvChanges")}
-+                      onValueChange={(value) => write({ trustDirenvChanges: value })}
-+                    />
-+                  </SettingsSection>
-                   <BranchNamingSettings
-                     key={targetsKey}
-                     mode={uniform("branchNamingMode")}
+@@ -486,6 +488,24 @@ function ServerSettingsDetail(props: { readonly page: SettingsPage }) {
+                     />
+                   ))}
+                 </SettingsSection>
++                <SettingsSection title="direnv environment">
++                  <SettingsSwitchRow
++                    icon="terminal"
++                    label="Load direnv environment"
++                    subtitle="Load the project's .envrc for agents and worktree setup scripts. T3 Code asks before loading each new .envrc."
++                    value={uniform("enableDirenvEnvironment")}
++                    disabled={disabledFor("enableDirenvEnvironment")}
++                    onValueChange={(value) => write({ enableDirenvEnvironment: value })}
++                  />
++                  <SettingsSwitchRow
++                    icon="checkmark.circle"
++                    label="Trust .envrc changes"
++                    subtitle="Approve changes to an approved .envrc without asking. Only for repositories you fully control."
++                    value={uniform("trustDirenvChanges")}
++                    disabled={disabledFor("trustDirenvChanges")}
++                    onValueChange={(value) => write({ trustDirenvChanges: value })}
++                  />
++                </SettingsSection>
+                 <BranchNamingSettings
+                   key={targetsKey}
+                   mode={uniform("branchNamingMode")}
 diff --git a/apps/mobile/src/features/threads/NewTaskDraftScreen.tsx b/apps/mobile/src/features/threads/NewTaskDraftScreen.tsx
-index f3488ebd3b..af389de089 100644
+index 2bc2670732..fcf65427a7 100644
 --- a/apps/mobile/src/features/threads/NewTaskDraftScreen.tsx
 +++ b/apps/mobile/src/features/threads/NewTaskDraftScreen.tsx
-@@ -69,6 +69,7 @@ import { projectEnvironment } from "../../state/projects";
+@@ -68,6 +68,7 @@ import { projectEnvironment } from "../../state/projects";
  import { sourceControlEnvironment } from "../../state/sourceControl";
  import { useAtomCommand } from "../../state/use-atom-command";
  import { ProjectCloneBanner } from "./ProjectCloneBanner";
@@ -64,21 +64,21 @@ index f3488ebd3b..af389de089 100644
  import {
    describeUnavailableModelSelection,
    isModelSelectionUnavailable,
-@@ -905,6 +906,14 @@ export function NewTaskDraftScreen(props: {
-           content: heroViewport,
-           controls: (
-             <View className="pb-1">
-+              {selectedProject ? (
-+                <ProjectEnvironmentBanner
-+                  className="px-1 pb-2"
-+                  environmentId={selectedProject.environmentId}
-+                  projectId={selectedProject.id}
-+                  threadId={null}
-+                />
-+              ) : null}
-               {projectClone && projectClone.phase !== "done" && selectedProject ? (
-                 <View className="px-1 pb-2">
-                   <ProjectCloneBanner
+@@ -898,6 +899,14 @@ export function NewTaskDraftScreen(props: {
+ 
+   const draftControls = (viewportHeight: number) => (
+     <View className="pb-1">
++      {selectedProject ? (
++        <ProjectEnvironmentBanner
++          className="px-1 pb-2"
++          environmentId={selectedProject.environmentId}
++          projectId={selectedProject.id}
++          threadId={null}
++        />
++      ) : null}
+       {projectClone && projectClone.phase !== "done" && selectedProject ? (
+         <View className="px-1 pb-2">
+           <ProjectCloneBanner
 diff --git a/apps/mobile/src/features/threads/ProjectEnvironmentBanner.tsx b/apps/mobile/src/features/threads/ProjectEnvironmentBanner.tsx
 new file mode 100644
 index 0000000000..e29bb7c5aa
@@ -239,21 +239,21 @@ index 0000000000..e29bb7c5aa
 +  );
 +}
 diff --git a/apps/mobile/src/features/threads/ThreadDetailScreen.tsx b/apps/mobile/src/features/threads/ThreadDetailScreen.tsx
-index d0b08ce405..6a04f3ae50 100644
+index 7cbc2a4091..c1674b9f06 100644
 --- a/apps/mobile/src/features/threads/ThreadDetailScreen.tsx
 +++ b/apps/mobile/src/features/threads/ThreadDetailScreen.tsx
-@@ -175,6 +175,7 @@ import type {
- import { PendingApprovalCard } from "./PendingApprovalCard";
+@@ -173,6 +173,7 @@ import { PendingApprovalCard } from "./PendingApprovalCard";
  import { ComposerErrorNotice } from "./ComposerErrorNotice";
  import { ManagedRuntimeModeNotice } from "./ManagedRuntimeModeNotice";
+ import { FreshSessionNotice } from "./FreshSessionNotice";
 +import { ProjectEnvironmentBanner } from "./ProjectEnvironmentBanner";
  import { ComposerFeedback } from "./ComposerFeedback";
  import { ComposerUsageLimits } from "./ComposerUsageLimits";
  import { PendingUserInputCard } from "./PendingUserInputCard";
-@@ -1643,6 +1644,12 @@ function ThreadDetailBody(
-                         onDismiss={() => props.onDismissFeedback(submission.id)}
-                       />
-                     ))}
+@@ -1645,6 +1646,12 @@ function ThreadDetailBody(
+                     {freshSessionAvailable ? (
+                       <FreshSessionNotice threadKey={selectedThreadKey} />
+                     ) : null}
 +                    <ProjectEnvironmentBanner
 +                      className="shrink-0 px-4 pb-2"
 +                      environmentId={props.environmentId}
@@ -263,3 +263,6 @@ index d0b08ce405..6a04f3ae50 100644
                      {props.canOperateThread ? (
                        <ManagedRuntimeModeNotice
                          threadKey={selectedThreadKey}
+-- 
+2.56.0
+
