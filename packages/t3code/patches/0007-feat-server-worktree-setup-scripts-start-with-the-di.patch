@@ -1,7 +1,7 @@
-From d9d10e73947da6f82295b4b59b950f93a7a2dc95 Mon Sep 17 00:00:00 2001
+From 46a9583cd20f92e2295b283ed892a79c6781d01b Mon Sep 17 00:00:00 2001
 From: Otavio Salvador <otavio@ossystems.com.br>
 Date: Fri, 30 Oct 2026 08:00:08 -0300
-Subject: [PATCH 07/11] feat(server): worktree setup scripts start with the
+Subject: [PATCH 07/12] feat(server): worktree setup scripts start with the
  direnv environment
 
 A new Load direnv environment setup stage evaluates the worktree's approved .envrc before the
@@ -15,7 +15,7 @@ stage and setup continues.
  4 files changed, 133 insertions(+), 2 deletions(-)
 
 diff --git a/apps/server/src/orchestration-v2/ThreadLaunchService.test.ts b/apps/server/src/orchestration-v2/ThreadLaunchService.test.ts
-index 993ee5c301..726fa3e53a 100644
+index fb7a2ffc2d..4c7702242f 100644
 --- a/apps/server/src/orchestration-v2/ThreadLaunchService.test.ts
 +++ b/apps/server/src/orchestration-v2/ThreadLaunchService.test.ts
 @@ -46,6 +46,8 @@ import * as SqlitePersistence from "../persistence/Sqlite.ts";
@@ -45,7 +45,7 @@ index 993ee5c301..726fa3e53a 100644
    );
    const layerLaunch = ThreadLaunch.layer.pipe(
      Layer.provide(
-@@ -2196,6 +2202,64 @@ it.effect("shared intake preserves durable attachment bytes after a lost launch
+@@ -2220,6 +2226,64 @@ it.effect("shared intake preserves durable attachment bytes after a lost launch
    }).pipe(Effect.provide(Layer.mergeAll(harness.layer, layerFiles)));
  });
  
@@ -226,7 +226,7 @@ index 7e7829ba94..5d8003286f 100644
                    ? {
                        observeCompletion: {
 diff --git a/apps/server/src/project/ProjectSetupScriptRunner.ts b/apps/server/src/project/ProjectSetupScriptRunner.ts
-index 96b574f2f8..fcdb551043 100644
+index 8e7c3105b3..38aa6b4d2c 100644
 --- a/apps/server/src/project/ProjectSetupScriptRunner.ts
 +++ b/apps/server/src/project/ProjectSetupScriptRunner.ts
 @@ -74,6 +74,8 @@ export interface ProjectSetupScriptRunnerInput {
@@ -253,7 +253,7 @@ index 96b574f2f8..fcdb551043 100644
        ...projectScriptRuntimeEnv({
          project: { cwd: project.workspaceRoot },
          worktreePath: input.worktreePath,
-@@ -469,6 +478,7 @@ export const make = Effect.gen(function* () {
+@@ -470,6 +479,7 @@ export const make = Effect.gen(function* () {
            cwd,
            worktreePath: input.worktreePath,
            env: { ...env, NO_COLOR: "1", FORCE_COLOR: "0" },
@@ -290,3 +290,6 @@ index e9b64e4c90..07a8112beb 100644
      case "setup-script":
        return "Run setup script";
      case "agent":
+-- 
+2.56.0
+

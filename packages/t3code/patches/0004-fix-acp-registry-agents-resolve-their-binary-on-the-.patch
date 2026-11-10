@@ -1,7 +1,7 @@
-From ef2bccc7569fee346f739d8f97d1d9b3dd765e05 Mon Sep 17 00:00:00 2001
+From da185c1787446509de5b1dcdb563cd3e237676cb Mon Sep 17 00:00:00 2001
 From: Otavio Salvador <otavio@ossystems.com.br>
 Date: Fri, 30 Oct 2026 07:59:53 -0300
-Subject: [PATCH 04/11] fix(acp): registry agents resolve their binary on the
+Subject: [PATCH 04/12] fix(acp): registry agents resolve their binary on the
  direnv PATH
 
 The registry resolved the agent binary before the direnv environment was applied, so tools the
@@ -142,3 +142,6 @@ index 01f61ea51f..30d14c912a 100644
            ...(options.settings.authMethodId ? { authMethodId: options.settings.authMethodId } : {}),
            customModels: readCustomModelEntries(options.settings.customModels).map(
              (entry) => entry.slug,
+-- 
+2.56.0
+

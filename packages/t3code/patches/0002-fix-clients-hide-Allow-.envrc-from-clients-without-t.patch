@@ -1,7 +1,7 @@
-From 83a5bb2f56fd7b57090169c90d047ad7c04d6158 Mon Sep 17 00:00:00 2001
+From 5f457a373fb89cee8945cd862459b2083bf22053 Mon Sep 17 00:00:00 2001
 From: Otavio Salvador <otavio@ossystems.com.br>
 Date: Sun, 11 Oct 2026 22:52:05 -0300
-Subject: [PATCH 02/11] fix(clients): hide Allow .envrc from clients without
+Subject: [PATCH 02/12] fix(clients): hide Allow .envrc from clients without
  the operate grant
 
 Allowing a project's .envrc is guarded by the orchestration operate grant,
@@ -16,10 +16,10 @@ without the grant; the warning itself still shows.
  3 files changed, 26 insertions(+)
 
 diff --git a/apps/mobile/src/features/threads/thread-work-log.tsx b/apps/mobile/src/features/threads/thread-work-log.tsx
-index ed94e5fa38..f5abb26eca 100644
+index 2361fb0fa7..ccfe91d211 100644
 --- a/apps/mobile/src/features/threads/thread-work-log.tsx
 +++ b/apps/mobile/src/features/threads/thread-work-log.tsx
-@@ -920,6 +920,9 @@ function AllowDirenvButton(props: {
+@@ -845,6 +845,9 @@ function AllowDirenvButton(props: {
    const [state, setState] = useState<"idle" | "pending" | "allowed">(() =>
      allowedDirenvWarnings.has(props.warningId) ? "allowed" : "idle",
    );
@@ -54,10 +54,10 @@ index c7f498bacb..b0d7210b3a 100644
      event.stopPropagation();
      setState("pending");
 diff --git a/packages/client-runtime/src/state/commandPermissions.test.ts b/packages/client-runtime/src/state/commandPermissions.test.ts
-index f2ef2c5d02..434fed7c7f 100644
+index d8da76a4b6..0566ad651c 100644
 --- a/packages/client-runtime/src/state/commandPermissions.test.ts
 +++ b/packages/client-runtime/src/state/commandPermissions.test.ts
-@@ -156,6 +156,23 @@ describe("command permissions", () => {
+@@ -183,6 +183,23 @@ describe("command permissions", () => {
      ),
    );
  
@@ -81,3 +81,6 @@ index f2ef2c5d02..434fed7c7f 100644
    it.effect("requires the destination settings grant to check OTLP endpoints", () =>
      Effect.scoped(
        Effect.gen(function* () {
+-- 
+2.56.0
+
