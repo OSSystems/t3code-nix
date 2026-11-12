@@ -1,4 +1,4 @@
-From 615ea659c71eb324249eda9de2adec33a55557a2 Mon Sep 17 00:00:00 2001
+From e71b6d4193764c97e960100f3dfe9bc6b591b0e7 Mon Sep 17 00:00:00 2001
 From: Otavio Salvador <otavio@ossystems.com.br>
 Date: Fri, 30 Oct 2026 08:00:08 -0300
 Subject: [PATCH 10/12] docs: explain how project .envrc approval works

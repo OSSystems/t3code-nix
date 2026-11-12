@@ -1,4 +1,4 @@
-From 424324ee504c85479a560f00e9a03b966cb2c8ec Mon Sep 17 00:00:00 2001
+From 7607be028073e650afb98e5d1e83ca5f4d11d74b Mon Sep 17 00:00:00 2001
 From: Otavio Salvador <otavio@ossystems.com.br>
 Date: Fri, 30 Oct 2026 07:59:53 -0300
 Subject: [PATCH 03/12] fix(server): setup script terminals can unset variables

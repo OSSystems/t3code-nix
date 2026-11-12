@@ -1,4 +1,4 @@
-From 5f54c9dd761360270b381a95ffdb12859605dc30 Mon Sep 17 00:00:00 2001
+From 8b64b938711bd10754763dcae344fa347b7b2c46 Mon Sep 17 00:00:00 2001
 From: Otavio Salvador <otavio@ossystems.com.br>
 Date: Fri, 30 Oct 2026 08:00:08 -0300
 Subject: [PATCH 06/12] feat: approve a project's .envrc once and load it
@@ -46,10 +46,10 @@ idle, so turns and background work in threads sharing the process are never cut 
  create mode 100644 packages/client-runtime/src/state/projectEnvironment.ts
 
 diff --git a/apps/mobile/src/features/threads/thread-work-log.tsx b/apps/mobile/src/features/threads/thread-work-log.tsx
-index ccfe91d211..f3e2c00200 100644
+index 1f745b1376..454f7d061c 100644
 --- a/apps/mobile/src/features/threads/thread-work-log.tsx
 +++ b/apps/mobile/src/features/threads/thread-work-log.tsx
-@@ -32,7 +32,6 @@ import {
+@@ -33,7 +33,6 @@ import {
  } from "react";
  import {
    Animated as NativeAnimated,
@@ -57,7 +57,7 @@ index ccfe91d211..f3e2c00200 100644
    type ColorValue,
    Pressable,
    ScrollView,
-@@ -52,6 +51,10 @@ import { useAtomValue } from "@effect/atom-react";
+@@ -54,6 +53,10 @@ import { useAtomValue } from "@effect/atom-react";
  import { scopeThreadRef } from "@t3tools/client-runtime/environment";
  import { environmentThreadDetails, threadEnvironment } from "../../state/threads";
  import { useAtomCommand } from "../../state/use-atom-command";
@@ -68,7 +68,7 @@ index ccfe91d211..f3e2c00200 100644
  import { toolActivityFaviconUrl } from "@t3tools/shared/favicon";
  import { isJavaScriptReplTool } from "@t3tools/shared/toolActivity";
  import { useMarkdownCodeHighlight } from "./markdownCodeHighlightState";
-@@ -832,53 +835,28 @@ function ToolCodeText({
+@@ -865,53 +868,28 @@ function HighlightedCodeText({
    );
  }
  
@@ -134,7 +134,7 @@ index ccfe91d211..f3e2c00200 100644
      </Pressable>
    );
  }
-@@ -1147,10 +1125,9 @@ const ThreadWorkLogRow = function ThreadWorkLogRow(
+@@ -1180,10 +1158,9 @@ const ThreadWorkLogRow = function ThreadWorkLogRow(
          <View className="shrink-0 flex-row items-center gap-px">
            {row.projectedItem.item.type === "system_notice" &&
            row.projectedItem.item.action?.type === "direnv.allow" ? (
@@ -179,7 +179,7 @@ index 0000000000..5c3ad27ae0
 +    }),
 +});
 diff --git a/apps/server/src/auth/RpcAuthorization.ts b/apps/server/src/auth/RpcAuthorization.ts
-index 40de9f9264..dd696dc73f 100644
+index eb5fcd2495..f641f60028 100644
 --- a/apps/server/src/auth/RpcAuthorization.ts
 +++ b/apps/server/src/auth/RpcAuthorization.ts
 @@ -175,7 +175,8 @@ export const RPC_REQUIRED_SCOPES = {
@@ -207,7 +207,7 @@ index 89294ca67f..e9f632dcb3 100644
    [WS_METHODS.projectsCreateNew]: "orchestration",
    [WS_METHODS.projectsCreateFromThread]: "orchestration",
 diff --git a/apps/server/src/orchestration-v2/ProviderSessionManager.test.ts b/apps/server/src/orchestration-v2/ProviderSessionManager.test.ts
-index 5603c25784..373f50a7c8 100644
+index 9dbb666887..9f1b2d2392 100644
 --- a/apps/server/src/orchestration-v2/ProviderSessionManager.test.ts
 +++ b/apps/server/src/orchestration-v2/ProviderSessionManager.test.ts
 @@ -36,6 +36,7 @@ import { HttpServer } from "effect/http";
@@ -229,7 +229,7 @@ index 5603c25784..373f50a7c8 100644
  }) {
    const layerConfiguredEventSink =
      input.flakyReleaseWrites !== undefined
-@@ -4500,12 +4503,30 @@ function runDirenvScenario(
+@@ -4677,12 +4680,30 @@ function runDirenvScenario(
        ProviderAdapter.ProviderAdapterV2SessionRuntime,
        ProviderSessionManager.ProviderSessionManagerV2Error
      >;
@@ -261,7 +261,7 @@ index 5603c25784..373f50a7c8 100644
      const loads = yield* Ref.make<
        ReadonlyArray<DirenvEnvironment.DirenvEnvironmentDiff | undefined>
      >([]);
-@@ -4515,13 +4536,35 @@ function runDirenvScenario(
+@@ -4692,13 +4713,35 @@ function runDirenvScenario(
      const direnvLayer = Layer.succeed(
        DirenvEnvironment.DirenvEnvironment,
        DirenvEnvironment.DirenvEnvironment.of({
@@ -303,7 +303,7 @@ index 5603c25784..373f50a7c8 100644
      );
      const beforeOpen = () =>
        Ref.update(openedWith, (current) => [
-@@ -4538,18 +4581,42 @@ function runDirenvScenario(
+@@ -4715,18 +4758,42 @@ function runDirenvScenario(
          providerInstanceId: modelSelection.instanceId,
          threadId,
        });
@@ -348,7 +348,7 @@ index 5603c25784..373f50a7c8 100644
        openedWith: yield* Ref.get(openedWith),
      };
    });
-@@ -4596,11 +4663,14 @@ it.effect(
+@@ -4773,11 +4840,14 @@ it.effect(
        const result = yield* runDirenvScenario(
          [
            { _tag: "Loaded", diff: before, changed: true },
@@ -364,7 +364,7 @@ index 5603c25784..373f50a7c8 100644
              const second = yield* open;
              assert.notStrictEqual(first, second);
            }),
-@@ -4608,7 +4678,178 @@ it.effect(
+@@ -4785,7 +4855,178 @@ it.effect(
        assert.equal(result.state.openCount, 2);
        assert.deepStrictEqual(result.openedWith, [before, after]);
        // The restart reuses the environment the check loaded instead of evaluating again.
@@ -545,7 +545,7 @@ index 5603c25784..373f50a7c8 100644
  );
  
 diff --git a/apps/server/src/orchestration-v2/ProviderSessionManager.ts b/apps/server/src/orchestration-v2/ProviderSessionManager.ts
-index 04cdbb40e0..a6a019fcc9 100644
+index 51b6ebbc9d..55a563ec4f 100644
 --- a/apps/server/src/orchestration-v2/ProviderSessionManager.ts
 +++ b/apps/server/src/orchestration-v2/ProviderSessionManager.ts
 @@ -46,6 +46,7 @@ import { ProviderWorkspaceMissingError } from "../provider/Errors.ts";
@@ -556,7 +556,7 @@ index 04cdbb40e0..a6a019fcc9 100644
  import * as ServerSettings from "../serverSettings.ts";
  import * as McpSessionRegistry from "../mcp/McpSessionRegistry.ts";
  import * as EventSink from "./EventSink.ts";
-@@ -432,17 +433,18 @@ export const layerWithOptions = (
+@@ -438,17 +439,18 @@ export const layerWithOptions = (
          );
        });
        const direnv = yield* Effect.serviceOption(DirenvEnvironment.DirenvEnvironment);
@@ -581,7 +581,7 @@ index 04cdbb40e0..a6a019fcc9 100644
              { cause },
            ).pipe(Effect.as(false)),
          ),
-@@ -478,7 +480,7 @@ export const layerWithOptions = (
+@@ -484,7 +486,7 @@ export const layerWithOptions = (
          DirenvEnvironment.setThreadDirenvEnvironment(threadId, preloaded);
          if (cwd === null) return null;
          if (preloaded !== undefined) return { cwd, diff: preloaded } as SessionDirenvEnvironment;
@@ -590,7 +590,7 @@ index 04cdbb40e0..a6a019fcc9 100644
          const result = yield* direnv.value.load(cwd);
          yield* Effect.annotateCurrentSpan({ "provider.direnv.result": result._tag });
          recordDirenvResult(threadId, result);
-@@ -487,17 +489,16 @@ export const layerWithOptions = (
+@@ -493,17 +495,16 @@ export const layerWithOptions = (
          return { cwd, diff } as SessionDirenvEnvironment;
        });
        /**
@@ -613,7 +613,7 @@ index 04cdbb40e0..a6a019fcc9 100644
            const previous = entry.direnv?.cwd === cwd ? loaded : undefined;
            const result = yield* direnv.value.load(cwd, previous);
            yield* Effect.annotateCurrentSpan({ "provider.direnv.refresh": result._tag });
-@@ -2521,16 +2522,45 @@ export const layerWithOptions = (
+@@ -2545,16 +2546,45 @@ export const layerWithOptions = (
                      cause: `Provider ${existing.runtime.driver} does not support attaching multiple app threads to one session.`,
                    });
                  }
@@ -669,7 +669,7 @@ index 04cdbb40e0..a6a019fcc9 100644
                    // Joining a shared session is a new session for this thread.
                    if (!attached) yield* agentScope.clear(input.threadId);
                    yield* ensureThreadAttached({
-@@ -2541,15 +2571,9 @@ export const layerWithOptions = (
+@@ -2565,15 +2595,9 @@ export const layerWithOptions = (
                    yield* touchActivity(input.providerSessionId);
                    return existing.exposedRuntime;
                  }
@@ -1531,7 +1531,7 @@ index 116bb1d3af..e88b3cb8db 100644
    Layer.provide(layerScheduledTaskWebhookOrigin),
    Layer.provide(ProviderUsageAnalytics.layer),
 diff --git a/apps/server/src/ws.ts b/apps/server/src/ws.ts
-index 133b2db47d..1dba249f07 100644
+index ef418e8c2d..75f80dbc07 100644
 --- a/apps/server/src/ws.ts
 +++ b/apps/server/src/ws.ts
 @@ -221,7 +221,7 @@ import { threadWorkspaceRoot } from "./project/threadWorkspaceRoot.ts";
@@ -1585,7 +1585,7 @@ index 133b2db47d..1dba249f07 100644
        const agentSessionScanner = yield* AgentSessionScanner.AgentSessionScanner;
        const agentSessionImporter = yield* AgentSessionImporter.AgentSessionImporter;
        const checkpointDiffQuery = yield* CheckpointDiffQuery.CheckpointDiffQuery;
-@@ -3183,7 +3154,22 @@ export const layerWsRpc = (
+@@ -3185,7 +3156,22 @@ export const layerWsRpc = (
            worktreeSetupTracker
              .cancel(input.threadId)
              .pipe(Effect.map((cancelled) => ({ cancelled }))),
@@ -1610,7 +1610,7 @@ index 133b2db47d..1dba249f07 100644
            vcsStatusBroadcaster.refreshStatus(input.cwd, { localOnly: input.localOnly ?? false }),
          [WS_METHODS.vcsPull]: (input) =>
 diff --git a/apps/web/src/components/chat/TimelineWorkEntryRow.tsx b/apps/web/src/components/chat/TimelineWorkEntryRow.tsx
-index b0d7210b3a..5e520a5bcb 100644
+index e31948dfc0..9bd971a291 100644
 --- a/apps/web/src/components/chat/TimelineWorkEntryRow.tsx
 +++ b/apps/web/src/components/chat/TimelineWorkEntryRow.tsx
 @@ -13,7 +13,6 @@ import {
@@ -1634,7 +1634,7 @@ index b0d7210b3a..5e520a5bcb 100644
  import {
    threadReadLabelPrefix,
    threadReadTargetId,
-@@ -154,61 +153,26 @@ type WorkEntryRowProps = {
+@@ -155,61 +154,26 @@ type WorkEntryRowProps = {
    onToggleEntry?: ((collapsed: boolean) => void) | undefined;
  };
  
@@ -1706,7 +1706,7 @@ index b0d7210b3a..5e520a5bcb 100644
      </Button>
    );
  }
-@@ -558,7 +522,7 @@ function WorkEntryLogRow(props: WorkEntryRowProps) {
+@@ -590,7 +554,7 @@ function WorkEntryLogRow(props: WorkEntryRowProps) {
              <XIcon aria-hidden className={cn("size-3 shrink-0", failedToolIconClassName)} />
            ) : null}
            {workEntry.warningAction?.type === "direnv.allow" && threadRef ? (
@@ -1748,7 +1748,7 @@ index 0000000000..5c3ad27ae0
 +    }),
 +});
 diff --git a/packages/client-runtime/package.json b/packages/client-runtime/package.json
-index 4d1aedd477..ced16e1a46 100644
+index c9e1260b95..7fe65a3f8e 100644
 --- a/packages/client-runtime/package.json
 +++ b/packages/client-runtime/package.json
 @@ -151,6 +151,10 @@
@@ -2140,10 +2140,10 @@ index 3b8955b0c7..04c993b9ee 100644
    WsVcsRefreshStatusRpc,
    WsGitRunStackedActionRpc,
 diff --git a/packages/contracts/src/settings.ts b/packages/contracts/src/settings.ts
-index e95bb83a2f..548dd70f4b 100644
+index bdb3f3ec7e..77cbc5ed67 100644
 --- a/packages/contracts/src/settings.ts
 +++ b/packages/contracts/src/settings.ts
-@@ -1154,6 +1154,7 @@ export const PROJECT_SCOPED_SERVER_SETTING_KEYS = [
+@@ -1161,6 +1161,7 @@ export const PROJECT_SCOPED_SERVER_SETTING_KEYS = [
    "enableAgentBrowserAccess",
    "enableAgentDeviceAccess",
    "enableDirenvEnvironment",
@@ -2151,7 +2151,7 @@ index e95bb83a2f..548dd70f4b 100644
    "textGenerationModelSelection",
    "threadTitleInstructions",
    "sourceControlWriterModelSelection",
-@@ -1193,6 +1194,7 @@ export const ProjectSettingsOverrides = Schema.Struct({
+@@ -1200,6 +1201,7 @@ export const ProjectSettingsOverrides = Schema.Struct({
    enableAgentBrowserAccess: Schema.optionalKey(Schema.Boolean),
    enableAgentDeviceAccess: Schema.optionalKey(Schema.Boolean),
    enableDirenvEnvironment: Schema.optionalKey(Schema.Boolean),
@@ -2159,7 +2159,7 @@ index e95bb83a2f..548dd70f4b 100644
    textGenerationModelSelection: Schema.optionalKey(ModelSelection),
    threadTitleInstructions: Schema.optionalKey(TrimmedString),
    sourceControlWriterModelSelection: Schema.optionalKey(Schema.NullOr(ModelSelection)),
-@@ -1407,11 +1409,13 @@ export const ServerSettings = Schema.Struct({
+@@ -1414,11 +1416,13 @@ export const ServerSettings = Schema.Struct({
  
    enableAgentDeviceAccess: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(false))),
    /**
@@ -2176,7 +2176,7 @@ index e95bb83a2f..548dd70f4b 100644
    /** Enabling the Device panel must not grant providers device control. */
    enableDeviceSupport: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(false))),
    deviceOnboardingCompleted: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(false))),
-@@ -1853,6 +1857,7 @@ export const ServerSettingsPatch = Schema.Struct({
+@@ -1860,6 +1864,7 @@ export const ServerSettingsPatch = Schema.Struct({
    ),
    enableAgentDeviceAccess: Schema.optionalKey(Schema.Boolean),
    enableDirenvEnvironment: Schema.optionalKey(Schema.Boolean),

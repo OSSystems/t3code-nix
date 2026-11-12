@@ -1,4 +1,4 @@
-From 46a9583cd20f92e2295b283ed892a79c6781d01b Mon Sep 17 00:00:00 2001
+From 960c31be35beebc10cfcb58c29357c3d5ac98a2c Mon Sep 17 00:00:00 2001
 From: Otavio Salvador <otavio@ossystems.com.br>
 Date: Fri, 30 Oct 2026 08:00:08 -0300
 Subject: [PATCH 07/12] feat(server): worktree setup scripts start with the
@@ -15,7 +15,7 @@ stage and setup continues.
  4 files changed, 133 insertions(+), 2 deletions(-)
 
 diff --git a/apps/server/src/orchestration-v2/ThreadLaunchService.test.ts b/apps/server/src/orchestration-v2/ThreadLaunchService.test.ts
-index fb7a2ffc2d..4c7702242f 100644
+index bfa50b9793..767d688a88 100644
 --- a/apps/server/src/orchestration-v2/ThreadLaunchService.test.ts
 +++ b/apps/server/src/orchestration-v2/ThreadLaunchService.test.ts
 @@ -46,6 +46,8 @@ import * as SqlitePersistence from "../persistence/Sqlite.ts";
@@ -37,7 +37,7 @@ index fb7a2ffc2d..4c7702242f 100644
  }
  
  function makeHarness(options: HarnessOptions = {}) {
-@@ -230,6 +235,7 @@ function makeHarness(options: HarnessOptions = {}) {
+@@ -231,6 +236,7 @@ function makeHarness(options: HarnessOptions = {}) {
          isScratchProject: () => Effect.succeed(false),
          folderForThread: () => Effect.succeedNone,
        }),
@@ -45,7 +45,7 @@ index fb7a2ffc2d..4c7702242f 100644
    );
    const layerLaunch = ThreadLaunch.layer.pipe(
      Layer.provide(
-@@ -2220,6 +2226,64 @@ it.effect("shared intake preserves durable attachment bytes after a lost launch
+@@ -2221,6 +2227,64 @@ it.effect("shared intake preserves durable attachment bytes after a lost launch
    }).pipe(Effect.provide(Layer.mergeAll(harness.layer, layerFiles)));
  });
  
@@ -111,7 +111,7 @@ index fb7a2ffc2d..4c7702242f 100644
    Effect.gen(function* () {
      const entered = yield* Deferred.make<void>();
 diff --git a/apps/server/src/orchestration-v2/ThreadLaunchService.ts b/apps/server/src/orchestration-v2/ThreadLaunchService.ts
-index 7e7829ba94..5d8003286f 100644
+index 6397bfdb3b..47d0271f91 100644
 --- a/apps/server/src/orchestration-v2/ThreadLaunchService.ts
 +++ b/apps/server/src/orchestration-v2/ThreadLaunchService.ts
 @@ -40,9 +40,11 @@ import {
@@ -206,7 +206,7 @@ index 7e7829ba94..5d8003286f 100644
          fiber: yield* Effect.fiber,
        });
      }
-@@ -581,6 +629,10 @@ const make = Effect.gen(function* () {
+@@ -582,6 +630,10 @@ const make = Effect.gen(function* () {
            })
            .pipe(Effect.mapError(mapError(input, "update-thread", threadId)));
        }
@@ -217,7 +217,7 @@ index 7e7829ba94..5d8003286f 100644
        yield* setupTracker.stageStatus(threadId, "setup-script", "running");
        const setup =
          worktreePath === null
-@@ -591,6 +643,7 @@ const make = Effect.gen(function* () {
+@@ -592,6 +644,7 @@ const make = Effect.gen(function* () {
                  projectId: input.projectId,
                  projectCwd: project.workspaceRoot,
                  worktreePath,
