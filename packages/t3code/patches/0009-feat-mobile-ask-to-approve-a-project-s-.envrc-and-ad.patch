@@ -1,4 +1,4 @@
-From e77e6190169b044179be5fce4dd8c48ae82fa68e Mon Sep 17 00:00:00 2001
+From ec1fa27c54a25324e9b48f03bdd52cc9d169a02e Mon Sep 17 00:00:00 2001
 From: Otavio Salvador <otavio@ossystems.com.br>
 Date: Fri, 30 Oct 2026 08:00:08 -0300
 Subject: [PATCH 09/12] feat(mobile): ask to approve a project's .envrc and add
@@ -239,10 +239,10 @@ index 0000000000..e29bb7c5aa
 +  );
 +}
 diff --git a/apps/mobile/src/features/threads/ThreadDetailScreen.tsx b/apps/mobile/src/features/threads/ThreadDetailScreen.tsx
-index 7cbc2a4091..c1674b9f06 100644
+index 72361dd242..e27368e00b 100644
 --- a/apps/mobile/src/features/threads/ThreadDetailScreen.tsx
 +++ b/apps/mobile/src/features/threads/ThreadDetailScreen.tsx
-@@ -173,6 +173,7 @@ import { PendingApprovalCard } from "./PendingApprovalCard";
+@@ -176,6 +176,7 @@ import { PendingApprovalCard } from "./PendingApprovalCard";
  import { ComposerErrorNotice } from "./ComposerErrorNotice";
  import { ManagedRuntimeModeNotice } from "./ManagedRuntimeModeNotice";
  import { FreshSessionNotice } from "./FreshSessionNotice";
@@ -250,7 +250,7 @@ index 7cbc2a4091..c1674b9f06 100644
  import { ComposerFeedback } from "./ComposerFeedback";
  import { ComposerUsageLimits } from "./ComposerUsageLimits";
  import { PendingUserInputCard } from "./PendingUserInputCard";
-@@ -1645,6 +1646,12 @@ function ThreadDetailBody(
+@@ -1681,6 +1682,12 @@ function ThreadDetailBody(
                      {freshSessionAvailable ? (
                        <FreshSessionNotice threadKey={selectedThreadKey} />
                      ) : null}

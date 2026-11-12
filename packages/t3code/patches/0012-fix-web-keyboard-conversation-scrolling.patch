@@ -1,4 +1,4 @@
-From 4f3112dfa96ccc703f8d8b4abb83267a7804c7c7 Mon Sep 17 00:00:00 2001
+From 35f9cd2bec814a5d7340f55647e7d464298c5c5e Mon Sep 17 00:00:00 2001
 From: Julius Marminge <julius0216@outlook.com>
 Date: Thu, 29 Oct 2026 22:36:58 +0000
 Subject: [PATCH 12/12] fix(web): arrow and page keys scroll the conversation
@@ -81,10 +81,11 @@ index 09a25ee559..4f3bc07387 100644
    );
  }
 diff --git a/apps/web/src/components/chat/MessagesTimeline.browser.test.tsx b/apps/web/src/components/chat/MessagesTimeline.browser.test.tsx
-index dae83fd027..fbab481f0b 100644
+index 0ca1f46f5d..fd08fc6344 100644
 --- a/apps/web/src/components/chat/MessagesTimeline.browser.test.tsx
 +++ b/apps/web/src/components/chat/MessagesTimeline.browser.test.tsx
-@@ -1,6 +1,6 @@
+@@ -2,7 +2,7 @@ import { injectHtmlRenderBootstrap } from "@t3tools/shared/htmlRender";
+ import { HtmlRenderDocument } from "../files/BrowserDocumentFrame";
  import { flushSync } from "react-dom";
  import { AudioPreview } from "../files/AudioPreview";
 -import { cdp, page } from "vite-plus/test/browser";
@@ -92,7 +93,7 @@ index dae83fd027..fbab481f0b 100644
  import {
    ComposerContextId,
    EnvironmentId,
-@@ -35,6 +35,7 @@ import { environmentThreadDetails } from "../../state/threads";
+@@ -37,6 +37,7 @@ import { environmentThreadDetails } from "../../state/threads";
  import { act, fakeTimers, render, stubGlobal } from "../../../test/render";
  import { ChangedFilesCard } from "./ChangedFilesTree";
  import { MessagesTimeline } from "./MessagesTimeline";
@@ -100,8 +101,8 @@ index dae83fd027..fbab481f0b 100644
  import { makeStreamingTimelineFixture } from "../../test-fixtures";
  import {
    type PendingApproval,
-@@ -469,6 +470,36 @@ describe("MessagesTimeline messages", () => {
-     await expectHeadingInView("Last turn", "Turn 118:");
+@@ -638,6 +639,36 @@ describe("MessagesTimeline messages", () => {
+     });
    });
  
 +  it("scrolls from the keyboard once F6 moves into the conversation", async () => {
@@ -138,13 +139,13 @@ index dae83fd027..fbab481f0b 100644
      setup();
      // NVDA's browse mode keeps the first DOM order it reads, so a timer that sorts rows later is too late.
 diff --git a/apps/web/src/components/chat/MessagesTimeline.tsx b/apps/web/src/components/chat/MessagesTimeline.tsx
-index 09f8155c4f..ab81196f47 100644
+index a2b39ffd14..b6df2b00df 100644
 --- a/apps/web/src/components/chat/MessagesTimeline.tsx
 +++ b/apps/web/src/components/chat/MessagesTimeline.tsx
-@@ -1323,6 +1323,9 @@ const ConversationTimeline = memo(function ConversationTimeline({
-               maintainScrollAtEndThreshold={1}
+@@ -1352,6 +1352,9 @@ const ConversationTimeline = memo(function ConversationTimeline({
                onScroll={handleScroll}
                onItemSizeChanged={scheduleMinimapRefresh}
+               onMetricsChange={scheduleMinimapRefresh}
 +              // Keyboard scrolling only moves the focused element; F6 and clicks land here.
 +              tabIndex={-1}
 +              data-workspace-focus-default
@@ -152,10 +153,10 @@ index 09f8155c4f..ab81196f47 100644
                  "messages-timeline-scroll scrollbar-gutter-both h-full min-h-0 overflow-x-hidden overscroll-y-contain [overflow-anchor:none]",
                  topFadeEnabled && "topbar-scroll-fade",
 diff --git a/apps/web/src/index.css b/apps/web/src/index.css
-index 764bdef70f..5c32484a21 100644
+index 40daa0da7d..f07ffaf5f6 100644
 --- a/apps/web/src/index.css
 +++ b/apps/web/src/index.css
-@@ -2578,11 +2578,17 @@ code {
+@@ -2584,11 +2584,17 @@ code {
  }
  
  /* A workspace area with no control of its own takes F6 focus itself; keep that visible.
@@ -176,7 +177,7 @@ index 764bdef70f..5c32484a21 100644
 +  outline: none;
 +}
 diff --git a/apps/web/src/lib/workspaceFocus.browser.test.ts b/apps/web/src/lib/workspaceFocus.browser.test.ts
-index 4587736b03..a4a760e96e 100644
+index d157f9068b..9adb4826c3 100644
 --- a/apps/web/src/lib/workspaceFocus.browser.test.ts
 +++ b/apps/web/src/lib/workspaceFocus.browser.test.ts
 @@ -33,6 +33,24 @@ function setup() {
@@ -271,10 +272,10 @@ index 4587736b03..a4a760e96e 100644
      ["panel", "panel", "removed"],
      ["conversation", "composer", "removed"],
 diff --git a/apps/web/src/lib/workspaceFocus.ts b/apps/web/src/lib/workspaceFocus.ts
-index dbec833061..d00be69147 100644
+index 5790067ce6..b4f80f80d5 100644
 --- a/apps/web/src/lib/workspaceFocus.ts
 +++ b/apps/web/src/lib/workspaceFocus.ts
-@@ -161,10 +161,14 @@ export function createWorkspaceFocusController(doc: Document) {
+@@ -172,10 +172,14 @@ export function createWorkspaceFocusController(doc: Document) {
          )
        : undefined;
      // Moving the timeline to an old control would also stop it following a running turn,

@@ -1,4 +1,4 @@
-From 5f457a373fb89cee8945cd862459b2083bf22053 Mon Sep 17 00:00:00 2001
+From d462d1ec29cd997b95181cf60cea3dac671d0bfd Mon Sep 17 00:00:00 2001
 From: Otavio Salvador <otavio@ossystems.com.br>
 Date: Sun, 11 Oct 2026 22:52:05 -0300
 Subject: [PATCH 02/12] fix(clients): hide Allow .envrc from clients without
@@ -16,10 +16,10 @@ without the grant; the warning itself still shows.
  3 files changed, 26 insertions(+)
 
 diff --git a/apps/mobile/src/features/threads/thread-work-log.tsx b/apps/mobile/src/features/threads/thread-work-log.tsx
-index 2361fb0fa7..ccfe91d211 100644
+index a6dfb0d93c..1f745b1376 100644
 --- a/apps/mobile/src/features/threads/thread-work-log.tsx
 +++ b/apps/mobile/src/features/threads/thread-work-log.tsx
-@@ -845,6 +845,9 @@ function AllowDirenvButton(props: {
+@@ -878,6 +878,9 @@ function AllowDirenvButton(props: {
    const [state, setState] = useState<"idle" | "pending" | "allowed">(() =>
      allowedDirenvWarnings.has(props.warningId) ? "allowed" : "idle",
    );
@@ -30,7 +30,7 @@ index 2361fb0fa7..ccfe91d211 100644
      <Pressable
        accessibilityRole="button"
 diff --git a/apps/web/src/components/chat/TimelineWorkEntryRow.tsx b/apps/web/src/components/chat/TimelineWorkEntryRow.tsx
-index c7f498bacb..b0d7210b3a 100644
+index f6e940acd8..e31948dfc0 100644
 --- a/apps/web/src/components/chat/TimelineWorkEntryRow.tsx
 +++ b/apps/web/src/components/chat/TimelineWorkEntryRow.tsx
 @@ -13,6 +13,7 @@ import {
@@ -41,7 +41,7 @@ index c7f498bacb..b0d7210b3a 100644
  import { Link } from "@tanstack/react-router";
  import { notificationChildThreadId } from "@t3tools/client-runtime/state/thread-execution";
  import {
-@@ -168,6 +169,11 @@ function AllowDirenvButton({
+@@ -169,6 +170,11 @@ function AllowDirenvButton({
    const [state, setState] = useState<"idle" | "pending" | "allowed">(() =>
      allowedDirenvWarnings.has(warningId) ? "allowed" : "idle",
    );

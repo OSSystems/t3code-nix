@@ -1,4 +1,4 @@
-From 37e623d2b0f4a514d28239f2583d0840672c59f0 Mon Sep 17 00:00:00 2001
+From 9d0f76d99a7d576dbe0911c858932472041d95cf Mon Sep 17 00:00:00 2001
 From: Otavio Salvador <otavio@ossystems.com.br>
 Date: Fri, 30 Oct 2026 07:59:53 -0300
 Subject: [PATCH 05/12] feat(server): Codex runs one shared process per project
@@ -14,10 +14,10 @@ project; threads with a stored session id keep it.
  4 files changed, 70 insertions(+), 1 deletion(-)
 
 diff --git a/apps/server/src/orchestration-v2/Orchestrator.control-reads.test.ts b/apps/server/src/orchestration-v2/Orchestrator.control-reads.test.ts
-index 6544fafdac..ab5fab201c 100644
+index d79d1a2d9c..375007f2df 100644
 --- a/apps/server/src/orchestration-v2/Orchestrator.control-reads.test.ts
 +++ b/apps/server/src/orchestration-v2/Orchestrator.control-reads.test.ts
-@@ -198,6 +198,50 @@ it.effect(
+@@ -386,6 +386,50 @@ it.effect(
      }).pipe(Effect.provide(layerTest)),
  );
  
@@ -69,7 +69,7 @@ index 6544fafdac..ab5fab201c 100644
    Effect.gen(function* () {
      const orchestrator = yield* Orchestrator.OrchestratorV2;
 diff --git a/apps/server/src/orchestration-v2/Orchestrator.ts b/apps/server/src/orchestration-v2/Orchestrator.ts
-index 37c4a75f66..6229c3fe3e 100644
+index 636a843e2b..5fe1120e50 100644
 --- a/apps/server/src/orchestration-v2/Orchestrator.ts
 +++ b/apps/server/src/orchestration-v2/Orchestrator.ts
 @@ -63,6 +63,7 @@ import {
@@ -80,7 +80,7 @@ index 37c4a75f66..6229c3fe3e 100644
    ProviderInstanceId,
    ProviderInteractionMode,
    isRuntimeModeAbove,
-@@ -1203,13 +1204,16 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
+@@ -1260,13 +1261,16 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
      readonly adapter: ProviderAdapter.ProviderAdapterV2["Service"];
      readonly providerInstanceId: ProviderInstanceId;
      readonly threadId: ThreadId;
@@ -97,7 +97,7 @@ index 37c4a75f66..6229c3fe3e 100644
                }),
              )
            : idAllocator.allocate.providerSession({
-@@ -2223,6 +2227,7 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
+@@ -2378,6 +2382,7 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
                adapter,
                providerInstanceId: queuedRun.providerInstanceId,
                threadId,
@@ -105,7 +105,7 @@ index 37c4a75f66..6229c3fe3e 100644
              }),
            ),
            Effect.mapError(
-@@ -5386,6 +5391,7 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
+@@ -5576,6 +5581,7 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
              adapter: targetAdapter,
              providerInstanceId: input.modelSelection.instanceId,
              threadId: input.command.threadId,
@@ -113,7 +113,7 @@ index 37c4a75f66..6229c3fe3e 100644
            }),
          ));
        const targetProviderThreadBase: OrchestrationV2ProviderThread =
-@@ -6666,6 +6672,7 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
+@@ -6930,6 +6936,7 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
              adapter,
              providerInstanceId: modelSelection.instanceId,
              threadId: command.threadId,
@@ -121,7 +121,7 @@ index 37c4a75f66..6229c3fe3e 100644
            }),
          ));
        const providerThreadId =
-@@ -7092,6 +7099,7 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
+@@ -7356,6 +7363,7 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
            adapter,
            providerInstanceId: modelSelection.instanceId,
            threadId: command.threadId,
@@ -130,7 +130,7 @@ index 37c4a75f66..6229c3fe3e 100644
        ));
      const existingProviderSession = projection.providerSessions.find(
 diff --git a/apps/server/src/orchestration-v2/ProviderSessionManager.test.ts b/apps/server/src/orchestration-v2/ProviderSessionManager.test.ts
-index fb6f5b06dc..5603c25784 100644
+index 2c75779853..9dbb666887 100644
 --- a/apps/server/src/orchestration-v2/ProviderSessionManager.test.ts
 +++ b/apps/server/src/orchestration-v2/ProviderSessionManager.test.ts
 @@ -326,6 +326,7 @@ const makeNativeChildFixture = Effect.fnUntraced(function* () {
@@ -189,7 +189,7 @@ index fb6f5b06dc..5603c25784 100644
          });
          yield* eventSink.write({
            events: [
-@@ -3713,6 +3720,7 @@ it.effect(
+@@ -3890,6 +3897,7 @@ it.effect(
          });
          const providerSessionId = idAllocator.derive.providerSession({
            providerInstanceId: modelSelection.instanceId,
@@ -197,7 +197,7 @@ index fb6f5b06dc..5603c25784 100644
          });
  
          yield* eventSink.write({
-@@ -3891,6 +3899,7 @@ it.effect(
+@@ -4068,6 +4076,7 @@ it.effect(
          });
          const providerSessionId = idAllocator.derive.providerSession({
            providerInstanceId: modelSelection.instanceId,
@@ -205,7 +205,7 @@ index fb6f5b06dc..5603c25784 100644
          });
          const parentProviderThread = makeProviderThread({
            idAllocator,
-@@ -4201,6 +4210,7 @@ it.effect(
+@@ -4378,6 +4387,7 @@ it.effect(
          });
          const providerSessionId = idAllocator.derive.providerSession({
            providerInstanceId: modelSelection.instanceId,
