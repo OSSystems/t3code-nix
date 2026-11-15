@@ -1,0 +1,511 @@
+From e76c4552072ed59012d4f5839dcb5665054f59c8 Mon Sep 17 00:00:00 2001
+From: Otavio Salvador <otavio@ossystems.com.br>
+Date: Sun, 15 Nov 2026 03:01:10 -0300
+Subject: [PATCH 13/14] feat(server): Git hooks start with the project's direnv
+ environment
+
+Commits and pushes from T3 Code ran Git with the server's own environment, so hooks that call
+tools only the project's .envrc provides, such as pnpm from a Nix dev shell, failed and the push
+reported only a non-zero Git exit.
+
+Commit and push now get the same approved direnv environment as the agent, resolved from the
+thread, the project, or the workspace root, and publishing a repository pushes with it too. An
+unapproved or failing .envrc runs Git without it, as before.
+---
+ apps/server/src/git/GitManager.test.ts        | 49 +++++++++++++++++++
+ apps/server/src/git/GitManager.ts             | 17 ++++++-
+ .../ProviderSessionManager.test.ts            |  1 +
+ .../project/ProjectEnvironmentService.test.ts | 28 +++++++++++
+ .../src/project/ProjectEnvironmentService.ts  | 44 ++++++++++++++++-
+ apps/server/src/server.ts                     | 18 ++++---
+ .../SourceControlRepositoryService.ts         | 10 +++-
+ apps/server/src/vcs/GitVcsDriver.ts           |  8 ++-
+ apps/server/src/vcs/GitVcsDriverCore.ts       | 13 +++--
+ docs/user/project-settings.md                 |  5 +-
+ 10 files changed, 175 insertions(+), 18 deletions(-)
+
+diff --git a/apps/server/src/git/GitManager.test.ts b/apps/server/src/git/GitManager.test.ts
+index 1eebcdeb4f..d601485c64 100644
+--- a/apps/server/src/git/GitManager.test.ts
++++ b/apps/server/src/git/GitManager.test.ts
+@@ -60,6 +60,7 @@ import * as SourceControlProviderRegistry from "../sourceControl/SourceControlPr
+ import * as ServerConfig from "../config.ts";
+ import * as ProjectionStore from "../orchestration-v2/ProjectionStore.ts";
+ import * as ProjectStore from "../orchestration-v2/ProjectStore.ts";
++import * as ProjectEnvironmentService from "../project/ProjectEnvironmentService.ts";
+ import * as SqlitePersistence from "../persistence/Sqlite.ts";
+ import * as ProjectSetupScriptRunner from "../project/ProjectSetupScriptRunner.ts";
+ import * as ProviderRegistry from "../provider/ProviderRegistry.ts";
+@@ -602,6 +603,7 @@ function makeManager(input?: {
+   textGeneration?: Partial<FakeGitTextGeneration>;
+   serverSettings?: Parameters<typeof ServerSettings.layerTest>[0];
+   setupScriptRunner?: ProjectSetupScriptRunner.ProjectSetupScriptRunner["Service"];
++  commandEnvironment?: ProjectEnvironmentService.ProjectEnvironmentService["Service"]["commandEnvironment"];
+   gitConfigReads?: string[];
+   gitCommands?: string[];
+   gitSpawnGate?: {
+@@ -716,6 +718,11 @@ function makeManager(input?: {
+       },
+     ),
+     layerServerSettings,
++    input?.commandEnvironment
++      ? Layer.mock(ProjectEnvironmentService.ProjectEnvironmentService)({
++          commandEnvironment: input.commandEnvironment,
++        })
++      : Layer.empty,
+   ).pipe(
+     Layer.provideMerge(layerSourceControlRegistry),
+     Layer.provideMerge(layerVcsDriver),
+@@ -3453,6 +3460,48 @@ it.layer(layerGitManagerTest)("GitManager", (it) => {
+     }),
+   );
+ 
++  it.effect("runs commit and push hooks with the project's direnv environment", () =>
++    Effect.gen(function* () {
++      const repoDir = yield* makeTempDir("t3code-git-manager-");
++      yield* initRepo(repoDir);
++      const remoteDir = yield* createBareRemote();
++      yield* runGit(repoDir, ["remote", "add", "origin", remoteDir]);
++      yield* runGit(repoDir, ["push", "-u", "origin", "HEAD:main"]);
++      yield* runGit(repoDir, ["checkout", "-b", "feature/direnv-hooks", "--track", "origin/main"]);
++      const hooksDir = (yield* runGit(repoDir, ["rev-parse", "--git-path", "hooks"])).stdout.trim();
++      for (const hook of ["pre-commit", "pre-push"]) {
++        NodeFS.writeFileSync(
++          NodePath.resolve(repoDir, hooksDir, hook),
++          `#!/bin/sh\n[ "$T3_HOOK_TOOL" = direnv ] || exit 1\necho ${hook} >> "$T3_HOOK_LOG"\n`,
++          { mode: 0o755 },
++        );
++      }
++      const hookLog = NodePath.join(yield* makeTempDir("t3code-git-hooks-"), "ran");
++      NodeFS.writeFileSync(NodePath.join(repoDir, "direnv.txt"), "direnv\n");
++
++      const requested: string[] = [];
++      const { manager } = yield* makeManager({
++        commandEnvironment: ({ cwd }) =>
++          Effect.sync(() => {
++            requested.push(cwd);
++            return { T3_HOOK_TOOL: "direnv", T3_HOOK_LOG: hookLog };
++          }),
++      });
++      const result = yield* runStackedAction(manager, {
++        cwd: repoDir,
++        action: "commit_push",
++        commitMessage: "Hooks need direnv",
++      });
++
++      expect(result.push.status).toBe("pushed");
++      expect(requested).toEqual([repoDir]);
++      expect(NodeFS.readFileSync(hookLog, "utf8").split("\n").filter(Boolean)).toEqual([
++        "pre-commit",
++        "pre-push",
++      ]);
++    }),
++  );
++
+   it.effect("hands the branch base to the host when a failed first push is retried", () =>
+     Effect.gen(function* () {
+       const repoDir = yield* makeTempDir("t3code-git-manager-");
+diff --git a/apps/server/src/git/GitManager.ts b/apps/server/src/git/GitManager.ts
+index c8f107ee70..a28eeb2c1c 100644
+--- a/apps/server/src/git/GitManager.ts
++++ b/apps/server/src/git/GitManager.ts
+@@ -79,6 +79,7 @@ import {
+ } from "../textGeneration/TextGenerationPresets.ts";
+ import * as ProjectionStore from "../orchestration-v2/ProjectionStore.ts";
+ import * as ProjectStore from "../orchestration-v2/ProjectStore.ts";
++import * as ProjectEnvironmentService from "../project/ProjectEnvironmentService.ts";
+ import * as ProjectSetupScriptRunner from "../project/ProjectSetupScriptRunner.ts";
+ import * as ProviderRegistry from "../provider/ProviderRegistry.ts";
+ import { extractBranchNameFromRemoteRef } from "./remoteRefs.ts";
+@@ -677,6 +678,9 @@ export const make = Effect.gen(function* () {
+   const serverSettingsService = yield* ServerSettings.ServerSettingsService;
+   const threads = yield* ProjectionStore.ProjectionStoreV2;
+   const projects = yield* ProjectStore.ProjectStoreV2;
++  const projectEnvironment = yield* Effect.serviceOption(
++    ProjectEnvironmentService.ProjectEnvironmentService,
++  );
+   const projectSettingsFor = Effect.fnUntraced(function* (input: {
+     readonly cwd: string;
+     readonly threadId?: ThreadId | undefined;
+@@ -744,8 +748,9 @@ export const make = Effect.gen(function* () {
+   const pushCurrentBranch = Effect.fn("GitManager.pushCurrentBranch")(function* (
+     cwd: string,
+     branch: string | null,
++    env: NodeJS.ProcessEnv | undefined,
+   ) {
+-    const result = yield* gitCore.pushCurrentBranch(cwd, branch);
++    const result = yield* gitCore.pushCurrentBranch(cwd, branch, env ? { env } : undefined);
+     if (result.status === "pushed" && result.branch) {
+       yield* shareBranchBase(cwd, result.branch);
+     }
+@@ -2181,6 +2186,7 @@ export const make = Effect.gen(function* () {
+     filePaths?: readonly string[],
+     progressReporter?: GitActionProgressReporter,
+     actionId?: string,
++    env?: NodeJS.ProcessEnv,
+   ) {
+     const emit = (event: GitActionProgressPayload) =>
+       progressReporter && actionId
+@@ -2268,6 +2274,7 @@ export const make = Effect.gen(function* () {
+       timeoutMs: COMMIT_TIMEOUT_MS,
+       stage: filePaths ? { filePaths } : {},
+       ...(commitProgress ? { progress: commitProgress } : {}),
++      ...(env ? { env } : {}),
+     });
+     if (currentHookName !== null) {
+       yield* emit({
+@@ -3284,6 +3291,11 @@ export const make = Effect.gen(function* () {
+ 
+         const currentBranch = branchStep.name ?? initialStatus.branch;
+         const commitAction = isCommitAction(input.action) ? input.action : null;
++        // Commit and push hooks often call tools only the project's .envrc puts on PATH.
++        const hookEnv =
++          (commitAction || wantsPush) && Option.isSome(projectEnvironment)
++            ? yield* projectEnvironment.value.commandEnvironment(input)
++            : undefined;
+         const changeRequestTerms = wantsPr ? yield* changeRequestTermsFor(input.cwd) : null;
+         // A stale or missing origin/HEAD hides the default branch from status, so check here
+         // before anything is committed or pushed to it.
+@@ -3308,6 +3320,7 @@ export const make = Effect.gen(function* () {
+                   input.filePaths,
+                   options?.progressReporter,
+                   progress.actionId,
++                  hookEnv,
+                 ),
+               ),
+             )
+@@ -3322,7 +3335,7 @@ export const make = Effect.gen(function* () {
+               })
+               .pipe(
+                 Effect.tap(() => Ref.set(currentPhase, Option.some("push"))),
+-                Effect.flatMap(() => pushCurrentBranch(input.cwd, currentBranch)),
++                Effect.flatMap(() => pushCurrentBranch(input.cwd, currentBranch, hookEnv)),
+               )
+           : { status: "skipped_not_requested" as const };
+ 
+diff --git a/apps/server/src/orchestration-v2/ProviderSessionManager.test.ts b/apps/server/src/orchestration-v2/ProviderSessionManager.test.ts
+index 9f1b2d2392..dc5cce6ad2 100644
+--- a/apps/server/src/orchestration-v2/ProviderSessionManager.test.ts
++++ b/apps/server/src/orchestration-v2/ProviderSessionManager.test.ts
+@@ -4739,6 +4739,7 @@ function runDirenvScenario(
+             approve: () => Effect.die("unused"),
+             prepare: () => Effect.succeed(true),
+             enabled: () => Effect.succeed(true),
++            commandEnvironment: () => Effect.die("unused"),
+           }),
+         ),
+       ),
+diff --git a/apps/server/src/project/ProjectEnvironmentService.test.ts b/apps/server/src/project/ProjectEnvironmentService.test.ts
+index b4d766cd4f..90c3261e44 100644
+--- a/apps/server/src/project/ProjectEnvironmentService.test.ts
++++ b/apps/server/src/project/ProjectEnvironmentService.test.ts
+@@ -53,6 +53,12 @@ function setup(
+         if (checkouts[cwd]!.permission === "denied") checkouts[cwd]!.permission = "blocked";
+         return { _tag: "Allowed" } as const;
+       }),
++    load: () =>
++      Effect.succeed({
++        _tag: "Loaded",
++        diff: { PATH: "/nix/store/flake/bin", NODE_OPTIONS: null },
++        changed: true,
++      }),
+   });
+   const layer = ProjectEnvironmentService.layer.pipe(
+     Layer.provide(
+@@ -61,6 +67,8 @@ function setup(
+         ServerSettings.layerTest(settings),
+         Layer.mock(ProjectService.ProjectService)({
+           getById: () => Effect.succeedSome({ workspaceRoot: ROOT } as never),
++          getByWorkspaceRoot: (cwd) =>
++            cwd === ROOT ? Effect.succeedSome({ id: projectId } as never) : Effect.succeedNone,
+         }),
+         Layer.mock(ProjectionStore.ProjectionStoreV2)({
+           getThread: () => Effect.succeed({ projectId, worktreePath: WORKTREE } as never),
+@@ -223,6 +231,26 @@ describe("ProjectEnvironmentService", () => {
+     }).pipe(Effect.provide(layer));
+   });
+ 
++  it.effect("gives Git the approved environment of a thread's worktree or a project root", () => {
++    const { layer } = setup({
++      [ROOT]: { content: "use flake\n", permission: "blocked" },
++      [WORKTREE]: { content: "use flake\n", permission: "blocked" },
++    });
++    return Effect.gen(function* () {
++      const environment = yield* service;
++      expect(yield* environment.commandEnvironment({ cwd: ROOT })).toBeUndefined();
++
++      const sha256 = yield* sha("use flake\n");
++      yield* environment.approve({ projectId, threadId, sha256 });
++      const expected = { PATH: "/nix/store/flake/bin", NODE_OPTIONS: undefined };
++      expect(yield* environment.commandEnvironment({ cwd: WORKTREE, threadId })).toStrictEqual(
++        expected,
++      );
++      expect(yield* environment.commandEnvironment({ cwd: ROOT })).toStrictEqual(expected);
++      expect(yield* environment.commandEnvironment({ cwd: "/elsewhere" })).toBeUndefined();
++    }).pipe(Effect.provide(layer));
++  });
++
+   it.effect("loads nothing and asks nothing when the setting is off", () => {
+     const { layer, allowed } = setup(
+       { [ROOT]: { content: "use flake\n", permission: "allowed" } },
+diff --git a/apps/server/src/project/ProjectEnvironmentService.ts b/apps/server/src/project/ProjectEnvironmentService.ts
+index 34a5a20008..8791fd3dd5 100644
+--- a/apps/server/src/project/ProjectEnvironmentService.ts
++++ b/apps/server/src/project/ProjectEnvironmentService.ts
+@@ -7,6 +7,7 @@ import type {
+   ProjectEnvironmentStatus,
+   ProjectEnvironmentStatusInput,
+   ProjectId,
++  ThreadId,
+ } from "@t3tools/contracts";
+ import { writeFileStringAtomically } from "@t3tools/shared/atomicWrite";
+ import { resolveProjectSettings } from "@t3tools/shared/projectSettings";
+@@ -48,6 +49,16 @@ export class ProjectEnvironmentService extends Context.Service<
+     readonly prepare: (projectId: ProjectId, cwd: string) => Effect.Effect<boolean>;
+     /** The project's Load direnv environment setting. */
+     readonly enabled: (projectId: ProjectId) => Effect.Effect<boolean>;
++    /**
++     * Variables for a command T3 Code runs in `cwd` itself, such as Git with its hooks, so it
++     * sees the same tools as the agent. Unset variables map to `undefined`. Undefined when
++     * nothing loads.
++     */
++    readonly commandEnvironment: (input: {
++      readonly cwd: string;
++      readonly threadId?: ThreadId | undefined;
++      readonly projectId?: ProjectId | undefined;
++    }) => Effect.Effect<NodeJS.ProcessEnv | undefined>;
+   }
+ >()("t3/project/ProjectEnvironmentService") {}
+ 
+@@ -271,7 +282,38 @@ const make = Effect.fn("ProjectEnvironmentService.make")(function* () {
+   const enabled: ProjectEnvironmentService["Service"]["enabled"] = (projectId) =>
+     settingsFor(projectId).pipe(Effect.map((settings) => settings.enableDirenvEnvironment));
+ 
+-  return ProjectEnvironmentService.of({ status, approve, prepare, enabled });
++  const commandEnvironment: ProjectEnvironmentService["Service"]["commandEnvironment"] = Effect.fn(
++    "ProjectEnvironmentService.commandEnvironment",
++  )(function* (input) {
++    const threadProjectId =
++      input.threadId === undefined
++        ? undefined
++        : yield* projectionStore.getThread(input.threadId).pipe(
++            Effect.map((thread) => thread.projectId),
++            Effect.orElseSucceed(() => undefined),
++          );
++    const projectId =
++      threadProjectId ??
++      input.projectId ??
++      (yield* projects.getByWorkspaceRoot(input.cwd).pipe(
++        Effect.map((project) => Option.getOrUndefined(project)?.id),
++        Effect.orElseSucceed(() => undefined),
++      ));
++    if (projectId === undefined || !(yield* prepare(projectId, input.cwd))) return undefined;
++    const result = yield* direnv.load(input.cwd);
++    if (result._tag === "Failed") {
++      yield* Effect.logWarning("Running without the project's direnv environment.", {
++        cwd: input.cwd,
++        message: result.message,
++      });
++    }
++    if (result._tag !== "Loaded") return undefined;
++    return Object.fromEntries(
++      Object.entries(result.diff).map(([name, value]) => [name, value ?? undefined]),
++    );
++  });
++
++  return ProjectEnvironmentService.of({ status, approve, prepare, enabled, commandEnvironment });
+ });
+ 
+ export const layer = Layer.effect(ProjectEnvironmentService, make());
+diff --git a/apps/server/src/server.ts b/apps/server/src/server.ts
+index e88b3cb8db..8bcf7ccec4 100644
+--- a/apps/server/src/server.ts
++++ b/apps/server/src/server.ts
+@@ -423,8 +423,17 @@ const layerPullRequestService = PullRequestService.layer.pipe(
+   Layer.provide(SourceControlRateLimit.layer),
+ );
+ 
++const layerDirenvEnvironment = DirenvEnvironment.layer.pipe(Layer.provide(ProcessRunner.layer));
++
++const layerProjectEnvironment = ProjectEnvironmentService.layer.pipe(
++  Layer.provide(RuntimeLayer.layerProjectService),
++  Layer.provide(ProjectionStoreV2.layer),
++  Layer.provideMerge(layerDirenvEnvironment),
++);
++
+ const layerGitManager = GitManager.layer.pipe(
+   Layer.provide(Layer.merge(ProjectionStoreV2.layer, ProjectStore.layer)),
++  Layer.provide(layerProjectEnvironment),
+   Layer.provideMerge(RuntimeLayer.layerProjectSetupScriptRunner),
+   Layer.provideMerge(WorktreeSetupTracker.layer),
+   Layer.provideMerge(GitVcsDriver.layer),
+@@ -443,6 +452,7 @@ const layerGitWorkflow = GitWorkflowService.layer.pipe(
+ );
+ 
+ const layerSourceControlRepositoryService = SourceControlRepositoryService.layer.pipe(
++  Layer.provide(layerProjectEnvironment),
+   Layer.provideMerge(GitVcsDriver.layer),
+   Layer.provideMerge(layerSourceControlProviderRegistry),
+ );
+@@ -567,13 +577,7 @@ const layerScheduledTaskWebhookOrigin = Layer.effect(
+ );
+ 
+ const layerOrchestrationV2Runtime = RuntimeLayer.layerProduction.pipe(
+-  Layer.provideMerge(
+-    ProjectEnvironmentService.layer.pipe(
+-      Layer.provide(RuntimeLayer.layerProjectService),
+-      Layer.provide(ProjectionStoreV2.layer),
+-    ),
+-  ),
+-  Layer.provideMerge(DirenvEnvironment.layer.pipe(Layer.provide(ProcessRunner.layer))),
++  Layer.provideMerge(layerProjectEnvironment),
+   Layer.provide(layerScheduledTaskWebhookOrigin),
+   Layer.provide(ProviderUsageAnalytics.layer),
+   Layer.provide(layerCheckpointStore),
+diff --git a/apps/server/src/sourceControl/SourceControlRepositoryService.ts b/apps/server/src/sourceControl/SourceControlRepositoryService.ts
+index 07c7b28d82..05feab01f0 100644
+--- a/apps/server/src/sourceControl/SourceControlRepositoryService.ts
++++ b/apps/server/src/sourceControl/SourceControlRepositoryService.ts
+@@ -2,6 +2,7 @@ import * as Context from "effect/Context";
+ import * as Effect from "effect/Effect";
+ import * as FileSystem from "effect/FileSystem";
+ import * as Layer from "effect/Layer";
++import * as Option from "effect/Option";
+ import * as Path from "effect/Path";
+ import * as Schedule from "effect/Schedule";
+ import * as Schema from "effect/Schema";
+@@ -30,6 +31,7 @@ import {
+   type GitCloneProgressLine,
+ } from "../project/gitCloneProgress.ts";
+ import * as GitVcsDriver from "../vcs/GitVcsDriver.ts";
++import * as ProjectEnvironmentService from "../project/ProjectEnvironmentService.ts";
+ import * as SourceControlProvider from "@t3tools/source-control-core/server/SourceControlProvider";
+ import * as SourceControlProviderRegistry from "./SourceControlProviderRegistry.ts";
+ import * as HostProcess from "@t3tools/shared/HostProcess";
+@@ -199,6 +201,9 @@ export const make = Effect.gen(function* () {
+   const config = yield* ServerConfig.ServerConfig;
+   const fileSystem = yield* FileSystem.FileSystem;
+   const git = yield* GitVcsDriver.GitVcsDriver;
++  const projectEnvironment = yield* Effect.serviceOption(
++    ProjectEnvironmentService.ProjectEnvironmentService,
++  );
+   const path = yield* Path.Path;
+   const providers = yield* SourceControlProviderRegistry.SourceControlProviderRegistry;
+ 
+@@ -502,8 +507,11 @@ export const make = Effect.gen(function* () {
+         };
+       }
+ 
++      const env = Option.isSome(projectEnvironment)
++        ? yield* projectEnvironment.value.commandEnvironment({ cwd: input.cwd })
++        : undefined;
+       const push = (pushUrl: string) =>
+-        git.pushCurrentBranch(input.cwd, null, { remoteName }).pipe(
++        git.pushCurrentBranch(input.cwd, null, { remoteName, ...(env ? { env } : {}) }).pipe(
+           Effect.map((result) => ({ branch: result.branch, remoteUrl: pushUrl })),
+           Effect.mapError(
+             (cause) =>
+diff --git a/apps/server/src/vcs/GitVcsDriver.ts b/apps/server/src/vcs/GitVcsDriver.ts
+index ff129690b7..c96aaff9ec 100644
+--- a/apps/server/src/vcs/GitVcsDriver.ts
++++ b/apps/server/src/vcs/GitVcsDriver.ts
+@@ -166,6 +166,8 @@ export interface GitCommitOptions {
+   readonly timeoutMs?: number;
+   readonly progress?: GitCommitProgress;
+   readonly stage?: { readonly filePaths?: readonly string[] };
++  /** Extra variables for `git commit`, which its hooks inherit. */
++  readonly env?: NodeJS.ProcessEnv;
+ }
+ 
+ export interface GitDeleteLocalBranchInput {
+@@ -342,7 +344,11 @@ export class GitVcsDriver extends Context.Service<
+     readonly pushCurrentBranch: (
+       cwd: string,
+       fallbackBranch: string | null,
+-      options?: { readonly remoteName?: string | null },
++      options?: {
++        readonly remoteName?: string | null;
++        /** Extra variables for `git push`, which its hooks inherit. */
++        readonly env?: NodeJS.ProcessEnv;
++      },
+     ) => Effect.Effect<GitPushResult, GitCommandError>;
+     /** Where `pushCurrentBranch` would push the checked-out branch; null with no remote or when Git picks. */
+     readonly resolvePushTarget: (
+diff --git a/apps/server/src/vcs/GitVcsDriverCore.ts b/apps/server/src/vcs/GitVcsDriverCore.ts
+index 4dabf3b493..cec77d1c47 100644
+--- a/apps/server/src/vcs/GitVcsDriverCore.ts
++++ b/apps/server/src/vcs/GitVcsDriverCore.ts
+@@ -2635,6 +2635,7 @@ export const makeGitVcsDriverCore = Effect.fn("makeGitVcsDriverCore")(function*
+     yield* executeGit("GitVcsDriver.commit.commit", cwd, args, {
+       maxOutputBytes: REVIEW_METADATA_MAX_OUTPUT_BYTES,
+       ...(options?.timeoutMs !== undefined ? { timeoutMs: options.timeoutMs } : {}),
++      ...(options?.env !== undefined ? { env: options.env } : {}),
+       ...(progress ? { progress } : {}),
+     }).pipe(Effect.asVoid);
+     const commitSha = yield* runGitStdout("GitVcsDriver.commit.revParseHead", cwd, [
+@@ -2734,6 +2735,10 @@ export const makeGitVcsDriverCore = Effect.fn("makeGitVcsDriverCore")(function*
+       });
+     }
+ 
++    const pushOptions = {
++      timeoutMs: null,
++      ...(options?.env !== undefined ? { env: options.env } : {}),
++    };
+     const requestedRemoteName = options?.remoteName?.trim() || null;
+     if (requestedRemoteName) {
+       const publishBranch = yield* resolvePublishBranchName(cwd, branch);
+@@ -2741,7 +2746,7 @@ export const makeGitVcsDriverCore = Effect.fn("makeGitVcsDriverCore")(function*
+         "GitVcsDriver.pushCurrentBranch.pushWithRequestedRemote",
+         cwd,
+         ["push", "--", requestedRemoteName, `HEAD:refs/heads/${publishBranch}`],
+-        { timeoutMs: null },
++        pushOptions,
+       );
+       return {
+         status: "pushed" as const,
+@@ -2831,7 +2836,7 @@ export const makeGitVcsDriverCore = Effect.fn("makeGitVcsDriverCore")(function*
+           : "GitVcsDriver.pushCurrentBranch.pushWithUpstream",
+         cwd,
+         ["push", "--", remoteName, `HEAD:refs/heads/${publishBranch}`],
+-        { timeoutMs: null },
++        pushOptions,
+       );
+       return {
+         status: "pushed" as const,
+@@ -2846,7 +2851,7 @@ export const makeGitVcsDriverCore = Effect.fn("makeGitVcsDriverCore")(function*
+         "GitVcsDriver.pushCurrentBranch.pushUpstream",
+         cwd,
+         ["push", "--", destination.remoteName, `HEAD:refs/heads/${destination.branchName}`],
+-        { timeoutMs: null },
++        pushOptions,
+       );
+       return {
+         status: "pushed" as const,
+@@ -2856,7 +2861,7 @@ export const makeGitVcsDriverCore = Effect.fn("makeGitVcsDriverCore")(function*
+       };
+     }
+ 
+-    yield* runGit("GitVcsDriver.pushCurrentBranch.push", cwd, ["push"], { timeoutMs: null });
++    yield* runGit("GitVcsDriver.pushCurrentBranch.push", cwd, ["push"], pushOptions);
+     return {
+       status: "pushed" as const,
+       branch,
+diff --git a/docs/user/project-settings.md b/docs/user/project-settings.md
+index a472119cef..f1ab5f095e 100644
+--- a/docs/user/project-settings.md
++++ b/docs/user/project-settings.md
+@@ -216,8 +216,9 @@ repositories whose checkout settings changed.
+ 
+ ## Project environments with direnv
+ 
+-If a project uses [direnv](https://direnv.net), agents and worktree setup scripts start with the
+-same environment its `.envrc` gives your shell, such as the tools from a Nix dev shell. The first
++If a project uses [direnv](https://direnv.net), agents, worktree setup scripts, and the Git hooks
++of commits and pushes made from T3 Code start with the same environment its `.envrc` gives your
++shell, such as the tools from a Nix dev shell. The first
+ time T3 Code finds an `.envrc` in a project, the composer shows its content and asks you to
+ approve it. After that, T3 Code runs `direnv allow` itself in the project and in every worktree it
+ creates, so you no longer need a setup script for it. A project you already allowed with
+-- 
+2.56.0
+
