@@ -36,6 +36,8 @@ let
     ./patches/0010-docs-explain-how-project-.envrc-approval-works.patch
     ./patches/0011-feat-muse-Muse-agents-start-with-the-project-s-diren.patch
     ./patches/0012-fix-web-keyboard-conversation-scrolling.patch
+    ./patches/0013-feat-server-Git-hooks-start-with-the-project-s-diren.patch
+    ./patches/0014-feat-choose-the-flake-dev-shell-a-project-s-direnv-e.patch
   ];
 
   unwrapped = t3code.unwrapped.overrideAttrs (
