@@ -1,87 +1,36 @@
-From 35f9cd2bec814a5d7340f55647e7d464298c5c5e Mon Sep 17 00:00:00 2001
+From 492b0fc175a55c7f12b85721052a31d67f854857 Mon Sep 17 00:00:00 2001
 From: Julius Marminge <julius0216@outlook.com>
-Date: Thu, 29 Oct 2026 22:36:58 +0000
-Subject: [PATCH 12/12] fix(web): arrow and page keys scroll the conversation
- after a click or F6
+Date: Thu, 12 Nov 2026 19:29:22 -0800
+Subject: [PATCH 14/16] fix(web): arrow and page keys scroll the conversation
+ again after a click or F6 (#27209)
 
-Focus the timeline scroller so native keyboard scrolling works after a
-click or workspace focus navigation. Keep its keyboard focus on window
-return and draw the focus ring around the conversation region. Do not
-restore the empty region ahead of a newly mounted timeline.
-
-Upstream: https://github.com/pingdotgg/t3code/pull/27209
-Upstream-Head: af39cb731be45f64815ae9bc792066170689b94b
-
-Backported to v0.1.7: refresh context and browser test imports.
-Squashes the four upstream commits and retains their regression tests.
-
-Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+(cherry picked from commit ed2a319814c7e506fdf4645f6f84d206133e95c7)
 ---
- .../components/ChatView.logic.browser.test.ts | 18 ++++++
- apps/web/src/components/ChatView.logic.ts     | 10 ++--
- .../chat/MessagesTimeline.browser.test.tsx    | 33 +++++++++-
- .../src/components/chat/MessagesTimeline.tsx  |  3 +
- apps/web/src/index.css                        | 10 +++-
- .../src/lib/workspaceFocus.browser.test.ts    | 60 +++++++++++++++++--
- apps/web/src/lib/workspaceFocus.ts            |  8 ++-
- 7 files changed, 128 insertions(+), 14 deletions(-)
+ apps/web/src/components/ChatView.logic.ts     |  4 +-
+ .../chat/MessagesTimeline.browser.test.tsx    | 35 ++++++++++++++++-
+ .../src/components/chat/MessagesTimeline.tsx  |  3 ++
+ apps/web/src/index.css                        | 12 +++++-
+ .../src/lib/workspaceFocus.browser.test.ts    | 38 ++++++++++++++++---
+ apps/web/src/lib/workspaceFocus.ts            | 33 ++++++++++------
+ 6 files changed, 104 insertions(+), 21 deletions(-)
 
-diff --git a/apps/web/src/components/ChatView.logic.browser.test.ts b/apps/web/src/components/ChatView.logic.browser.test.ts
-index 2d887cb5ac..2fbbaaf122 100644
---- a/apps/web/src/components/ChatView.logic.browser.test.ts
-+++ b/apps/web/src/components/ChatView.logic.browser.test.ts
-@@ -59,3 +59,21 @@ it("refocuses the composer on window return from a clicked area after a bare key
-   expect(document.activeElement).toBe(conversation);
-   expect(shouldRefocusComposerOnWindowFocus(document.activeElement)).toBe(false);
- });
-+
-+it("keeps keyboard focus on the conversation timeline on window return, but not a click", async () => {
-+  const timeline = document.createElement("div");
-+  timeline.className = "messages-timeline-scroll";
-+  timeline.tabIndex = -1;
-+  timeline.textContent = "Assistant reply";
-+  document.body.append(timeline);
-+  using _timeline = { [Symbol.dispose]: () => timeline.remove() };
-+
-+  await userEvent.click(timeline);
-+  expect(document.activeElement).toBe(timeline);
-+  expect(shouldRefocusComposerOnWindowFocus(document.activeElement)).toBe(true);
-+
-+  timeline.blur();
-+  await userEvent.keyboard("{F6}");
-+  timeline.focus();
-+  expect(shouldRefocusComposerOnWindowFocus(document.activeElement)).toBe(false);
-+});
 diff --git a/apps/web/src/components/ChatView.logic.ts b/apps/web/src/components/ChatView.logic.ts
-index 09a25ee559..4f3bc07387 100644
+index 09a25ee559..db72ae29d2 100644
 --- a/apps/web/src/components/ChatView.logic.ts
 +++ b/apps/web/src/components/ChatView.logic.ts
-@@ -1078,10 +1078,10 @@ export function hasServerAcknowledgedLocalDispatch(input: {
-   );
- }
+@@ -1080,8 +1080,8 @@ export function hasServerAcknowledgedLocalDispatch(input: {
  
--// Returning to the window should land the caret in the composer, so the reader can type right
--// away. The exceptions are places where focus is deliberate: another text field, a terminal in
+ // Returning to the window should land the caret in the composer, so the reader can type right
+ // away. The exceptions are places where focus is deliberate: another text field, a terminal in
 -// the drawer or the right panel, an open dialog, menu, or popup, or a region or sidebar row
 -// reached from the keyboard. A plain focused button or a clicked row yields to the composer.
-+// Returning to the window lands the caret in the composer, except where focus is deliberate:
-+// another text field, a terminal in the drawer or the right panel, an open dialog, menu, or
-+// popup, or a region, timeline, or sidebar row reached from the keyboard. A plain focused button
-+// or a clicked row yields to the composer.
++// the drawer or the right panel, an open dialog, menu, or popup, or a region, timeline, or sidebar
++// row reached from the keyboard. A plain focused button or a clicked row yields to the composer.
  export function shouldRefocusComposerOnWindowFocus(
    activeElement:
      | (Pick<Element, "tagName" | "closest" | "getAttribute"> & { isContentEditable?: boolean })
-@@ -1101,7 +1101,7 @@ export function shouldRefocusComposerOnWindowFocus(
-   }
-   return (
-     activeElement.closest(
--      '[data-workspace-keyboard-focus], [data-sidebar-row]:focus-visible, [role="dialog"], [role="alertdialog"], [role="application"], [role="menu"], [role="listbox"], [data-slot$="-popup"], [data-terminal-owner]',
-+      '[data-workspace-keyboard-focus], [data-sidebar-row]:focus-visible, .messages-timeline-scroll:focus-visible, [role="dialog"], [role="alertdialog"], [role="application"], [role="menu"], [role="listbox"], [data-slot$="-popup"], [data-terminal-owner]',
-     ) === null
-   );
- }
 diff --git a/apps/web/src/components/chat/MessagesTimeline.browser.test.tsx b/apps/web/src/components/chat/MessagesTimeline.browser.test.tsx
-index 0ca1f46f5d..fd08fc6344 100644
+index 0ca1f46f5d..f584ca27fa 100644
 --- a/apps/web/src/components/chat/MessagesTimeline.browser.test.tsx
 +++ b/apps/web/src/components/chat/MessagesTimeline.browser.test.tsx
 @@ -2,7 +2,7 @@ import { injectHtmlRenderBootstrap } from "@t3tools/shared/htmlRender";
@@ -101,8 +50,8 @@ index 0ca1f46f5d..fd08fc6344 100644
  import { makeStreamingTimelineFixture } from "../../test-fixtures";
  import {
    type PendingApproval,
-@@ -638,6 +639,36 @@ describe("MessagesTimeline messages", () => {
-     });
+@@ -531,6 +532,38 @@ describe("MessagesTimeline messages", () => {
+     await expectHeadingInView("Last turn", "Turn 118:");
    });
  
 +  it("scrolls from the keyboard once F6 moves into the conversation", async () => {
@@ -130,14 +79,16 @@ index 0ca1f46f5d..fd08fc6344 100644
 +    await vi.waitFor(() => expect(viewport.scrollTop).toBeGreaterThan(0));
 +    const atEnd = viewport.scrollTop;
 +    page.getByRole("button", { name: "Send" }).element().focus();
++    await userEvent.keyboard("{F6}");
 +    focus.move(-1);
++    expect(viewport).toHaveAttribute("data-workspace-keyboard-focus");
 +    await userEvent.keyboard("{PageUp}");
 +    await vi.waitFor(() => expect(viewport.scrollTop).toBeLessThan(atEnd));
 +  });
 +
-   it("keeps rows in item order after a reload or thread switch, before any timer runs", async () => {
+   it("disables the minimap's next turn button at the bottom of the thread", async () => {
      setup();
-     // NVDA's browse mode keeps the first DOM order it reads, so a timer that sorts rows later is too late.
+     const props = baseProps();
 diff --git a/apps/web/src/components/chat/MessagesTimeline.tsx b/apps/web/src/components/chat/MessagesTimeline.tsx
 index a2b39ffd14..b6df2b00df 100644
 --- a/apps/web/src/components/chat/MessagesTimeline.tsx
@@ -153,10 +104,10 @@ index a2b39ffd14..b6df2b00df 100644
                  "messages-timeline-scroll scrollbar-gutter-both h-full min-h-0 overflow-x-hidden overscroll-y-contain [overflow-anchor:none]",
                  topFadeEnabled && "topbar-scroll-fade",
 diff --git a/apps/web/src/index.css b/apps/web/src/index.css
-index 40daa0da7d..f07ffaf5f6 100644
+index 40daa0da7d..09f79c72f8 100644
 --- a/apps/web/src/index.css
 +++ b/apps/web/src/index.css
-@@ -2584,11 +2584,17 @@ code {
+@@ -2584,11 +2584,19 @@ code {
  }
  
  /* A workspace area with no control of its own takes F6 focus itself; keep that visible.
@@ -168,7 +119,9 @@ index 40daa0da7d..f07ffaf5f6 100644
  }
 -[data-workspace-keyboard-focus]:focus {
 +[data-workspace-keyboard-focus]:focus,
-+[data-workspace-area="conversation"]:has(.messages-timeline-scroll:focus-visible) {
++[data-workspace-area="conversation"]:has(
++  .messages-timeline-scroll[data-workspace-keyboard-focus]:focus
++) {
    outline: 2px solid var(--ring);
    outline-offset: -2px;
  }
@@ -177,13 +130,14 @@ index 40daa0da7d..f07ffaf5f6 100644
 +  outline: none;
 +}
 diff --git a/apps/web/src/lib/workspaceFocus.browser.test.ts b/apps/web/src/lib/workspaceFocus.browser.test.ts
-index d157f9068b..9adb4826c3 100644
+index d157f9068b..719d237ef3 100644
 --- a/apps/web/src/lib/workspaceFocus.browser.test.ts
 +++ b/apps/web/src/lib/workspaceFocus.browser.test.ts
-@@ -33,6 +33,24 @@ function setup() {
+@@ -33,6 +33,15 @@ function setup() {
    };
  }
  
++/** Mirrors MessagesTimeline's scroller, which takes focus so the keyboard scrolls it. */
 +function conversationScroller(height: number) {
 +  const timeline = document.createElement("div");
 +  timeline.style.cssText = `height: ${height}px; overflow-y: auto`;
@@ -192,20 +146,10 @@ index d157f9068b..9adb4826c3 100644
 +  return timeline;
 +}
 +
-+function conversationWithTimeline(fixture: ReturnType<typeof setup>) {
-+  const conversation = fixture.area("conversation", 1);
-+  conversation.button.remove();
-+  const timeline = conversationScroller(200);
-+  timeline.append(Object.assign(document.createElement("div"), { style: "height: 2000px" }));
-+  conversation.element.append(timeline);
-+  const composer = fixture.area("composer", 2);
-+  return { timeline, composer };
-+}
-+
  describe("workspace area focus", () => {
    it("cycles in workspace order in both directions, independent of DOM order", () => {
      using fixture = setup();
-@@ -42,7 +60,7 @@ describe("workspace area focus", () => {
+@@ -42,7 +51,7 @@ describe("workspace area focus", () => {
      const composer = fixture.area("composer", 2);
      sidebar.button.focus();
      fixture.controller.move(1);
@@ -214,7 +158,7 @@ index d157f9068b..9adb4826c3 100644
      expect(document.activeElement).toBe(conversation.element);
      fixture.controller.move(1);
      expect(document.activeElement).toBe(composer.button);
-@@ -191,8 +209,7 @@ describe("workspace area focus", () => {
+@@ -191,8 +200,7 @@ describe("workspace area focus", () => {
    it("does not scroll the conversation to an old control", () => {
      using fixture = setup();
      const conversation = fixture.area("conversation", 1);
@@ -224,7 +168,7 @@ index d157f9068b..9adb4826c3 100644
      const copy = document.createElement("button");
      copy.textContent = "Copy";
      timeline.append(copy, Object.assign(document.createElement("div"), { style: "height: 400px" }));
-@@ -204,10 +221,45 @@ describe("workspace area focus", () => {
+@@ -204,10 +212,28 @@ describe("workspace area focus", () => {
      // Live follow moved the timeline to the newest output.
      timeline.scrollTop = 300;
      fixture.controller.move(-1);
@@ -233,23 +177,6 @@ index d157f9068b..9adb4826c3 100644
      expect(timeline.scrollTop).toBe(300);
    });
  
-+  it("scrolls the conversation with the keyboard after F6 moves into it", async () => {
-+    using fixture = setup();
-+    const { timeline, composer } = conversationWithTimeline(fixture);
-+    composer.button.focus();
-+    fixture.controller.move(-1);
-+    await userEvent.keyboard("{ArrowDown}{PageDown}");
-+    await vi.waitFor(() => expect(timeline.scrollTop).toBeGreaterThan(0));
-+  });
-+
-+  it("scrolls the conversation with the keyboard after clicking inside it", async () => {
-+    using fixture = setup();
-+    const { timeline } = conversationWithTimeline(fixture);
-+    await userEvent.click(timeline);
-+    await userEvent.keyboard("{ArrowDown}{PageDown}");
-+    await vi.waitFor(() => expect(timeline.scrollTop).toBeGreaterThan(0));
-+  });
-+
 +  it("scrolls the conversation with the keyboard once an empty thread gets a timeline", async () => {
 +    using fixture = setup();
 +    const conversation = fixture.area("conversation", 1);
@@ -271,11 +198,76 @@ index d157f9068b..9adb4826c3 100644
    it.each([
      ["panel", "panel", "removed"],
      ["conversation", "composer", "removed"],
+@@ -268,7 +294,9 @@ describe("workspace area focus", () => {
+     bringBack.textContent = "Bring back";
+     content.append(bringBack);
+     panel.element.append(content);
+-    fixture.area("conversation", 1, content);
++    const timeline = conversationScroller(50);
++    timeline.append(Object.assign(document.createElement("div"), { style: "height: 400px" }));
++    fixture.area("conversation", 1, content).element.append(timeline);
+     const composer = fixture.area("composer", 2, content);
+     const editor = document.createElement("div");
+     editor.contentEditable = "true";
 diff --git a/apps/web/src/lib/workspaceFocus.ts b/apps/web/src/lib/workspaceFocus.ts
-index 5790067ce6..b4f80f80d5 100644
+index 5790067ce6..4a85774b99 100644
 --- a/apps/web/src/lib/workspaceFocus.ts
 +++ b/apps/web/src/lib/workspaceFocus.ts
-@@ -172,10 +172,14 @@ export function createWorkspaceFocusController(doc: Document) {
+@@ -100,18 +100,22 @@ function revealInScrollers(target: HTMLElement) {
+ export function createWorkspaceFocusController(doc: Document) {
+   const lastFocused = new Map<string, HTMLElement>();
+   let lastArea: string | undefined;
+-  // An area that took focus itself from the keyboard. Chromium's :focus-visible also matches
+-  // a clicked area after any later key press, so the ring and window return read this mark.
++  // An area that took focus itself from the keyboard, or the non-tabbable default (the
++  // conversation's scroller) standing in for it. Chromium's :focus-visible also matches a
++  // clicked area after any later key press, so the ring and window return read this mark.
+   let keyboardArea: HTMLElement | undefined;
+   let previousTarget: EventTarget | null = null;
+   const unmarkKeyboardArea = () => {
+     keyboardArea?.removeAttribute("data-workspace-keyboard-focus");
+     keyboardArea = undefined;
+   };
+-  const markKeyboardArea = (area: HTMLElement) => {
+-    if (!area.matches(":focus-visible")) return;
+-    keyboardArea = area;
+-    area.setAttribute("data-workspace-keyboard-focus", "");
++  const standsInFor = (element: HTMLElement, area: HTMLElement) =>
++    element === area ||
++    (element.tabIndex < 0 && element.hasAttribute("data-workspace-focus-default"));
++  const markKeyboardArea = (target: HTMLElement) => {
++    if (!target.matches(":focus-visible")) return;
++    keyboardArea = target;
++    target.setAttribute("data-workspace-keyboard-focus", "");
+   };
+   const remember = (event: FocusEvent) => {
+     if (event.target !== keyboardArea) unmarkKeyboardArea();
+@@ -121,7 +125,7 @@ export function createWorkspaceFocusController(doc: Document) {
+     if (!(event.target instanceof HTMLElement)) return;
+     const area = workspaceArea(event.target);
+     if (!area?.dataset.workspaceArea) return;
+-    if (arrived && event.target === area) markKeyboardArea(area);
++    if (arrived && standsInFor(event.target, area)) markKeyboardArea(event.target);
+     lastArea = area.dataset.workspaceArea;
+     const key = area.dataset.workspaceFocusKey ?? lastArea;
+     lastFocused.delete(key);
+@@ -141,11 +145,14 @@ export function createWorkspaceFocusController(doc: Document) {
+     const belongs = (element: HTMLElement) => workspaceArea(element) === area && usable(element);
+     // A side chat's message input sits in its own area inside the panel. Opening the
+     // panel focuses it, but F6 visits that area on its own, so it moves past it here.
++    // A nested timeline stands in only for its own area, never ahead of that input.
+     const preferred = Array.from(
+       area.querySelectorAll<HTMLElement>(
+         '[data-workspace-focus-default], [data-sidebar-row][aria-current="page"], [data-settings-section][tabindex="0"], .xterm-helper-textarea, [contenteditable="true"]',
+       ),
+-    ).find(nested ? usable : belongs);
++    ).find((element) =>
++      nested && !standsInFor(element, area) ? usable(element) : belongs(element),
++    );
+     const fallback = Array.from(area.querySelectorAll<HTMLElement>(FOCUSABLE_SELECTOR)).find(
+       (element) => element.tabIndex >= 0 && belongs(element),
+     );
+@@ -172,10 +179,14 @@ export function createWorkspaceFocusController(doc: Document) {
          )
        : undefined;
      // Moving the timeline to an old control would also stop it following a running turn,
@@ -292,6 +284,15 @@ index 5790067ce6..b4f80f80d5 100644
          ? previous
          : undefined,
        isConversation ? undefined : restored,
+@@ -192,7 +203,7 @@ export function createWorkspaceFocusController(doc: Document) {
+       if (active === target || (active && target.contains(active))) {
+         if (target !== area && !isConversation) revealInScrollers(target);
+         // Focusing the already focused area fires no focusin, as when F6 has nowhere else to go.
+-        if (target === area) markKeyboardArea(area);
++        if (standsInFor(target, area)) markKeyboardArea(target);
+         return true;
+       }
+     }
 -- 
 2.56.0
 

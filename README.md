@@ -15,7 +15,7 @@ runtime configuration.
 ```mermaid
 flowchart LR
   upstream["pingdotgg/t3code<br/>stable tag (v0.1.9)"]
-  fork["OSSystems/t3code<br/>first-class direnv series on v0.1.9<br/>(branch v0.1.9+first-class-direnv)"]
+  fork["OSSystems/t3code<br/>OSSystems patch series on v0.1.9<br/>(branch v0.1.9+ossystems)"]
   recipe["nixpkgs<br/>t3code recipe"]
   patches["packages/t3code/patches"]
   pkg["packages/t3code/package.nix"]

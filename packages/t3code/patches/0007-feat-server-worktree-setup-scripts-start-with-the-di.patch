@@ -1,7 +1,7 @@
 From 960c31be35beebc10cfcb58c29357c3d5ac98a2c Mon Sep 17 00:00:00 2001
 From: Otavio Salvador <otavio@ossystems.com.br>
 Date: Fri, 30 Oct 2026 08:00:08 -0300
-Subject: [PATCH 07/12] feat(server): worktree setup scripts start with the
+Subject: [PATCH 07/16] feat(server): worktree setup scripts start with the
  direnv environment
 
 A new Load direnv environment setup stage evaluates the worktree's approved .envrc before the

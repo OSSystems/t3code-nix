@@ -1,7 +1,7 @@
 From d462d1ec29cd997b95181cf60cea3dac671d0bfd Mon Sep 17 00:00:00 2001
 From: Otavio Salvador <otavio@ossystems.com.br>
 Date: Sun, 11 Oct 2026 22:52:05 -0300
-Subject: [PATCH 02/12] fix(clients): hide Allow .envrc from clients without
+Subject: [PATCH 02/16] fix(clients): hide Allow .envrc from clients without
  the operate grant
 
 Allowing a project's .envrc is guarded by the orchestration operate grant,

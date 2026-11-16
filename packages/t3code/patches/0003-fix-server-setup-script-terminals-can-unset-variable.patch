@@ -1,7 +1,7 @@
 From 7607be028073e650afb98e5d1e83ca5f4d11d74b Mon Sep 17 00:00:00 2001
 From: Otavio Salvador <otavio@ossystems.com.br>
 Date: Fri, 30 Oct 2026 07:59:53 -0300
-Subject: [PATCH 03/12] fix(server): setup script terminals can unset variables
+Subject: [PATCH 03/16] fix(server): setup script terminals can unset variables
 
 A direnv environment can remove variables, such as a toolchain path an .envrc replaces, so a
 terminal launch needs a way to drop inherited keys, and a change to them counts as a new launch.

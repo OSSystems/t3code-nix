@@ -1,7 +1,7 @@
-From e76c4552072ed59012d4f5839dcb5665054f59c8 Mon Sep 17 00:00:00 2001
+From ec918042978f1de4426563411cdd264477832da1 Mon Sep 17 00:00:00 2001
 From: Otavio Salvador <otavio@ossystems.com.br>
 Date: Sun, 15 Nov 2026 03:01:10 -0300
-Subject: [PATCH 13/14] feat(server): Git hooks start with the project's direnv
+Subject: [PATCH 12/16] feat(server): Git hooks start with the project's direnv
  environment
 
 Commits and pushes from T3 Code ran Git with the server's own environment, so hooks that call
