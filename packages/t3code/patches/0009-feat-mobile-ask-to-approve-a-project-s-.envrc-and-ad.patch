@@ -1,7 +1,7 @@
 From ec1fa27c54a25324e9b48f03bdd52cc9d169a02e Mon Sep 17 00:00:00 2001
 From: Otavio Salvador <otavio@ossystems.com.br>
 Date: Fri, 30 Oct 2026 08:00:08 -0300
-Subject: [PATCH 09/12] feat(mobile): ask to approve a project's .envrc and add
+Subject: [PATCH 09/16] feat(mobile): ask to approve a project's .envrc and add
  direnv settings
 
 The new task and thread screens show the same approval banner as the web, and the worktrees

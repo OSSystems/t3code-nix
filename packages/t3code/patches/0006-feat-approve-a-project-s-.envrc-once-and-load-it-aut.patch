@@ -1,7 +1,7 @@
 From 8b64b938711bd10754763dcae344fa347b7b2c46 Mon Sep 17 00:00:00 2001
 From: Otavio Salvador <otavio@ossystems.com.br>
 Date: Fri, 30 Oct 2026 08:00:08 -0300
-Subject: [PATCH 06/12] feat: approve a project's .envrc once and load it
+Subject: [PATCH 06/16] feat: approve a project's .envrc once and load it
  automatically
 
 Loading only .envrc files allowed from a shell left every new worktree blocked until a setup

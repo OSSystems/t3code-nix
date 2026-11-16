@@ -1,7 +1,7 @@
 From 9d0f76d99a7d576dbe0911c858932472041d95cf Mon Sep 17 00:00:00 2001
 From: Otavio Salvador <otavio@ossystems.com.br>
 Date: Fri, 30 Oct 2026 07:59:53 -0300
-Subject: [PATCH 05/12] feat(server): Codex runs one shared process per project
+Subject: [PATCH 05/16] feat(server): Codex runs one shared process per project
 
 One provider process carries one environment, so sharing a Codex app-server across projects
 would give every project the first one's direnv environment. Derive the shared session per

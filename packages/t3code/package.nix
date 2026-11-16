@@ -35,9 +35,11 @@ let
     ./patches/0009-feat-mobile-ask-to-approve-a-project-s-.envrc-and-ad.patch
     ./patches/0010-docs-explain-how-project-.envrc-approval-works.patch
     ./patches/0011-feat-muse-Muse-agents-start-with-the-project-s-diren.patch
-    ./patches/0012-fix-web-keyboard-conversation-scrolling.patch
-    ./patches/0013-feat-server-Git-hooks-start-with-the-project-s-diren.patch
-    ./patches/0014-feat-choose-the-flake-dev-shell-a-project-s-direnv-e.patch
+    ./patches/0012-feat-server-Git-hooks-start-with-the-project-s-diren.patch
+    ./patches/0013-feat-choose-the-flake-dev-shell-a-project-s-direnv-e.patch
+    ./patches/0014-fix-web-arrow-and-page-keys-scroll-the-conversation-.patch
+    ./patches/0015-fix-web-J-and-K-step-the-PR-guide-without-clicking-i.patch
+    ./patches/0016-fix-web-Shift-F6-moves-from-a-side-chat-back-to-the-.patch
   ];
 
   unwrapped = t3code.unwrapped.overrideAttrs (
