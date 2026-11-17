@@ -11,7 +11,7 @@
 }:
 
 let
-  version = "0.1.9";
+  version = "0.1.10";
 
   browser = chromium;
   browserProfileName = "t3-nix-${baseNameOf (toString browser.browser)}";
@@ -20,7 +20,7 @@ let
     owner = "pingdotgg";
     repo = "t3code";
     tag = "v${version}";
-    hash = "sha256-3i5o9gs/nYx0vxyn2ukYtLEA21UZZdX0x4ebgxY8bhI=";
+    hash = "sha256-zhScbDGW+bD2T7++YRUPY/y83SGE2080LxcGw3Txrso=";
   };
 
   patches = [
@@ -37,9 +37,6 @@ let
     ./patches/0011-feat-muse-Muse-agents-start-with-the-project-s-diren.patch
     ./patches/0012-feat-server-Git-hooks-start-with-the-project-s-diren.patch
     ./patches/0013-feat-choose-the-flake-dev-shell-a-project-s-direnv-e.patch
-    ./patches/0014-fix-web-arrow-and-page-keys-scroll-the-conversation-.patch
-    ./patches/0015-fix-web-J-and-K-step-the-PR-guide-without-clicking-i.patch
-    ./patches/0016-fix-web-Shift-F6-moves-from-a-side-chat-back-to-the-.patch
   ];
 
   unwrapped = t3code.unwrapped.overrideAttrs (
@@ -79,7 +76,7 @@ let
           pnpmWorkspaces
           ;
         fetcherVersion = 4;
-        hash = "sha256-LlriCjCtumLN6PhMaWkymInYSb0oP6R3QdJ9u5ExeIA=";
+        hash = "sha256-9mQ6NLC/+l7p4Cs8TfF9BGgj4N9qnBC4mg4JDvGhKJo=";
       };
 
       passthru = (oldAttrs.passthru or { }) // {

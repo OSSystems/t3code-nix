@@ -1,7 +1,7 @@
-From 8b64b938711bd10754763dcae344fa347b7b2c46 Mon Sep 17 00:00:00 2001
+From e3dc1d9d0ac584cc3e524184083cbcd5b2e4da7b Mon Sep 17 00:00:00 2001
 From: Otavio Salvador <otavio@ossystems.com.br>
 Date: Fri, 30 Oct 2026 08:00:08 -0300
-Subject: [PATCH 06/16] feat: approve a project's .envrc once and load it
+Subject: [PATCH 06/13] feat: approve a project's .envrc once and load it
  automatically
 
 Loading only .envrc files allowed from a shell left every new worktree blocked until a setup
@@ -19,11 +19,11 @@ idle, so turns and background work in threads sharing the process are never cut 
  apps/server/src/auth/RpcAuthorization.ts      |   3 +-
  .../src/observability/RpcInstrumentation.ts   |   3 +-
  .../ProviderSessionManager.test.ts            | 265 ++++++++++++++++-
- .../ProviderSessionManager.ts                 |  88 ++++--
+ .../ProviderSessionManager.ts                 |  86 ++++--
  .../project/ProjectEnvironmentService.test.ts | 241 +++++++++++++++
  .../src/project/ProjectEnvironmentService.ts  | 277 ++++++++++++++++++
  .../src/provider/DirenvEnvironment.test.ts    |  75 ++++-
- apps/server/src/provider/DirenvEnvironment.ts | 116 ++++++--
+ apps/server/src/provider/DirenvEnvironment.ts | 115 ++++++--
  apps/server/src/server.ts                     |   7 +
  apps/server/src/ws.ts                         |  54 ++--
  .../components/chat/TimelineWorkEntryRow.tsx  |  64 +---
@@ -37,7 +37,7 @@ idle, so turns and background work in threads sharing the process are never cut 
  packages/contracts/src/projectEnvironment.ts  |  57 +++-
  packages/contracts/src/rpc.ts                 |  24 +-
  packages/contracts/src/settings.ts            |  11 +-
- 23 files changed, 1378 insertions(+), 223 deletions(-)
+ 23 files changed, 1378 insertions(+), 220 deletions(-)
  create mode 100644 apps/mobile/src/state/projectEnvironment.ts
  create mode 100644 apps/server/src/project/ProjectEnvironmentService.test.ts
  create mode 100644 apps/server/src/project/ProjectEnvironmentService.ts
@@ -46,7 +46,7 @@ idle, so turns and background work in threads sharing the process are never cut 
  create mode 100644 packages/client-runtime/src/state/projectEnvironment.ts
 
 diff --git a/apps/mobile/src/features/threads/thread-work-log.tsx b/apps/mobile/src/features/threads/thread-work-log.tsx
-index 1f745b1376..454f7d061c 100644
+index f0113aaea5..3e8ac155bc 100644
 --- a/apps/mobile/src/features/threads/thread-work-log.tsx
 +++ b/apps/mobile/src/features/threads/thread-work-log.tsx
 @@ -33,7 +33,6 @@ import {
@@ -179,10 +179,10 @@ index 0000000000..5c3ad27ae0
 +    }),
 +});
 diff --git a/apps/server/src/auth/RpcAuthorization.ts b/apps/server/src/auth/RpcAuthorization.ts
-index eb5fcd2495..f641f60028 100644
+index e2a1b5fc15..cd99e9b94b 100644
 --- a/apps/server/src/auth/RpcAuthorization.ts
 +++ b/apps/server/src/auth/RpcAuthorization.ts
-@@ -175,7 +175,8 @@ export const RPC_REQUIRED_SCOPES = {
+@@ -177,7 +177,8 @@ export const RPC_REQUIRED_SCOPES = {
    [WS_METHODS.vcsRefreshBranch]: AuthOrchestrationReadScope,
    [WS_METHODS.subscribeWorktreeSetup]: AuthOrchestrationReadScope,
    [WS_METHODS.worktreeSetupCancel]: AuthOrchestrationOperateScope,
@@ -193,10 +193,10 @@ index eb5fcd2495..f641f60028 100644
    [WS_METHODS.vcsRefreshStatus]: AuthOrchestrationReadScope,
    [WS_METHODS.gitResolvePullRequest]: AuthOrchestrationReadScope,
 diff --git a/apps/server/src/observability/RpcInstrumentation.ts b/apps/server/src/observability/RpcInstrumentation.ts
-index 89294ca67f..e9f632dcb3 100644
+index 30a846fb01..bcad730962 100644
 --- a/apps/server/src/observability/RpcInstrumentation.ts
 +++ b/apps/server/src/observability/RpcInstrumentation.ts
-@@ -159,7 +159,8 @@ const RPC_AGGREGATES = {
+@@ -163,7 +163,8 @@ const RPC_AGGREGATES = {
    [WS_METHODS.projectsSearchContents]: "workspace",
    [WS_METHODS.projectsSearchEntries]: "workspace",
    [WS_METHODS.projectsWriteFile]: "workspace",
@@ -207,10 +207,10 @@ index 89294ca67f..e9f632dcb3 100644
    [WS_METHODS.projectsCreateNew]: "orchestration",
    [WS_METHODS.projectsCreateFromThread]: "orchestration",
 diff --git a/apps/server/src/orchestration-v2/ProviderSessionManager.test.ts b/apps/server/src/orchestration-v2/ProviderSessionManager.test.ts
-index 9dbb666887..9f1b2d2392 100644
+index 235f6a204b..f7ed2fe906 100644
 --- a/apps/server/src/orchestration-v2/ProviderSessionManager.test.ts
 +++ b/apps/server/src/orchestration-v2/ProviderSessionManager.test.ts
-@@ -36,6 +36,7 @@ import { HttpServer } from "effect/http";
+@@ -39,6 +39,7 @@ import { HttpServer } from "effect/http";
  
  import { ProviderWorkspaceMissingError } from "../provider/Errors.ts";
  import * as DirenvEnvironment from "../provider/DirenvEnvironment.ts";
@@ -218,10 +218,10 @@ index 9dbb666887..9f1b2d2392 100644
  import * as ServerEnvironment from "../environment/ServerEnvironment.ts";
  import * as ProjectService from "../project/ProjectService.ts";
  import * as McpProviderSession from "@t3tools/provider-core/server/mcpSession";
-@@ -607,7 +608,9 @@ function layerTest(input: {
-   readonly scopeCloseReached?: Deferred.Deferred<void>;
+@@ -653,7 +654,9 @@ function layerTest(input: {
    readonly serverSettingsLayer?: ReturnType<typeof ServerSettings.layerTest>;
    readonly projectServiceLayer?: Layer.Layer<ProjectService.ProjectService>;
+   readonly installationGateLayer?: Layer.Layer<ProviderInstallationGate.ProviderInstallationGate>;
 -  readonly direnvLayer?: Layer.Layer<DirenvEnvironment.DirenvEnvironment>;
 +  readonly direnvLayer?: Layer.Layer<
 +    DirenvEnvironment.DirenvEnvironment | ProjectEnvironmentService.ProjectEnvironmentService
@@ -229,7 +229,7 @@ index 9dbb666887..9f1b2d2392 100644
  }) {
    const layerConfiguredEventSink =
      input.flakyReleaseWrites !== undefined
-@@ -4677,12 +4680,30 @@ function runDirenvScenario(
+@@ -5759,12 +5762,30 @@ function runDirenvScenario(
        ProviderAdapter.ProviderAdapterV2SessionRuntime,
        ProviderSessionManager.ProviderSessionManagerV2Error
      >;
@@ -261,7 +261,7 @@ index 9dbb666887..9f1b2d2392 100644
      const loads = yield* Ref.make<
        ReadonlyArray<DirenvEnvironment.DirenvEnvironmentDiff | undefined>
      >([]);
-@@ -4692,13 +4713,35 @@ function runDirenvScenario(
+@@ -5774,13 +5795,35 @@ function runDirenvScenario(
      const direnvLayer = Layer.succeed(
        DirenvEnvironment.DirenvEnvironment,
        DirenvEnvironment.DirenvEnvironment.of({
@@ -303,7 +303,7 @@ index 9dbb666887..9f1b2d2392 100644
      );
      const beforeOpen = () =>
        Ref.update(openedWith, (current) => [
-@@ -4715,18 +4758,42 @@ function runDirenvScenario(
+@@ -5797,18 +5840,42 @@ function runDirenvScenario(
          providerInstanceId: modelSelection.instanceId,
          threadId,
        });
@@ -348,7 +348,7 @@ index 9dbb666887..9f1b2d2392 100644
        openedWith: yield* Ref.get(openedWith),
      };
    });
-@@ -4773,11 +4840,14 @@ it.effect(
+@@ -5855,11 +5922,14 @@ it.effect(
        const result = yield* runDirenvScenario(
          [
            { _tag: "Loaded", diff: before, changed: true },
@@ -364,7 +364,7 @@ index 9dbb666887..9f1b2d2392 100644
              const second = yield* open;
              assert.notStrictEqual(first, second);
            }),
-@@ -4785,7 +4855,178 @@ it.effect(
+@@ -5867,7 +5937,178 @@ it.effect(
        assert.equal(result.state.openCount, 2);
        assert.deepStrictEqual(result.openedWith, [before, after]);
        // The restart reuses the environment the check loaded instead of evaluating again.
@@ -545,10 +545,10 @@ index 9dbb666887..9f1b2d2392 100644
  );
  
 diff --git a/apps/server/src/orchestration-v2/ProviderSessionManager.ts b/apps/server/src/orchestration-v2/ProviderSessionManager.ts
-index 51b6ebbc9d..55a563ec4f 100644
+index 3511bec2e2..b8bb6685d2 100644
 --- a/apps/server/src/orchestration-v2/ProviderSessionManager.ts
 +++ b/apps/server/src/orchestration-v2/ProviderSessionManager.ts
-@@ -46,6 +46,7 @@ import { ProviderWorkspaceMissingError } from "../provider/Errors.ts";
+@@ -52,6 +52,7 @@ import * as ProviderInstallationGate from "../provider/ProviderInstallationGate.
  import * as ProjectService from "../project/ProjectService.ts";
  import * as McpProviderSessions from "@t3tools/provider-core/server/McpProviderSessions";
  import * as DirenvEnvironment from "../provider/DirenvEnvironment.ts";
@@ -556,7 +556,7 @@ index 51b6ebbc9d..55a563ec4f 100644
  import * as ServerSettings from "../serverSettings.ts";
  import * as McpSessionRegistry from "../mcp/McpSessionRegistry.ts";
  import * as EventSink from "./EventSink.ts";
-@@ -438,17 +439,18 @@ export const layerWithOptions = (
+@@ -516,17 +517,18 @@ export const layerWithOptions = (
          );
        });
        const direnv = yield* Effect.serviceOption(DirenvEnvironment.DirenvEnvironment);
@@ -581,7 +581,7 @@ index 51b6ebbc9d..55a563ec4f 100644
              { cause },
            ).pipe(Effect.as(false)),
          ),
-@@ -484,7 +486,7 @@ export const layerWithOptions = (
+@@ -562,7 +564,7 @@ export const layerWithOptions = (
          DirenvEnvironment.setThreadDirenvEnvironment(threadId, preloaded);
          if (cwd === null) return null;
          if (preloaded !== undefined) return { cwd, diff: preloaded } as SessionDirenvEnvironment;
@@ -590,15 +590,13 @@ index 51b6ebbc9d..55a563ec4f 100644
          const result = yield* direnv.value.load(cwd);
          yield* Effect.annotateCurrentSpan({ "provider.direnv.result": result._tag });
          recordDirenvResult(threadId, result);
-@@ -493,17 +495,16 @@ export const layerWithOptions = (
+@@ -571,15 +573,16 @@ export const layerWithOptions = (
          return { cwd, diff } as SessionDirenvEnvironment;
        });
        /**
--       * Re-check a live session's direnv environment before reusing it, as a
--       * shell hook does on each prompt: direnv compares the files it watches
--       * (the `.envrc`, its allow record, `flake.lock`, ...) and only evaluates
--       * again when one changed. `restart` means the process should start over
--       * with `diff`.
+-       * Re-check a live session's direnv environment before reuse, as a shell
+-       * hook does on each prompt: direnv only evaluates again when a watched
+-       * file changed. `restart` means the process should start over with `diff`.
 +       * Re-check a live session's direnv environment before reusing it, as a shell hook does
 +       * on each prompt: direnv only evaluates again when a watched file changed. `restart`
 +       * means the process should start over with `diff`.
@@ -613,7 +611,7 @@ index 51b6ebbc9d..55a563ec4f 100644
            const previous = entry.direnv?.cwd === cwd ? loaded : undefined;
            const result = yield* direnv.value.load(cwd, previous);
            yield* Effect.annotateCurrentSpan({ "provider.direnv.refresh": result._tag });
-@@ -2545,16 +2546,45 @@ export const layerWithOptions = (
+@@ -3120,16 +3123,45 @@ export const layerWithOptions = (
                      cause: `Provider ${existing.runtime.driver} does not support attaching multiple app threads to one session.`,
                    });
                  }
@@ -669,7 +667,7 @@ index 51b6ebbc9d..55a563ec4f 100644
                    // Joining a shared session is a new session for this thread.
                    if (!attached) yield* agentScope.clear(input.threadId);
                    yield* ensureThreadAttached({
-@@ -2565,15 +2595,9 @@ export const layerWithOptions = (
+@@ -3140,15 +3172,9 @@ export const layerWithOptions = (
                    yield* touchActivity(input.providerSessionId);
                    return existing.exposedRuntime;
                  }
@@ -1340,18 +1338,17 @@ index d24363d4c1..652adb2ad6 100644
    );
  });
 diff --git a/apps/server/src/provider/DirenvEnvironment.ts b/apps/server/src/provider/DirenvEnvironment.ts
-index 7cb6798076..88ecd75fb5 100644
+index 2a88f05494..88ecd75fb5 100644
 --- a/apps/server/src/provider/DirenvEnvironment.ts
 +++ b/apps/server/src/provider/DirenvEnvironment.ts
-@@ -1,4 +1,6 @@
--import type { ThreadId } from "@t3tools/contracts";
+@@ -1,3 +1,6 @@
 +// @effect-diagnostics nodeBuiltinImport:off
 +import * as NodeCrypto from "node:crypto";
 +
  import * as HostProcess from "@t3tools/shared/HostProcess";
  import * as Context from "effect/Context";
  import * as Deferred from "effect/Deferred";
-@@ -45,9 +47,21 @@ export type DirenvLoadResult =
+@@ -44,9 +47,21 @@ export type DirenvLoadResult =
  
  export type DirenvLoadFailure = Extract<DirenvLoadResult, { readonly _tag: "Failed" }>;
  
@@ -1375,7 +1372,7 @@ index 7cb6798076..88ecd75fb5 100644
    | { readonly _tag: "Failed"; readonly message: string };
  
  /**
-@@ -69,18 +83,24 @@ export class DirenvEnvironment extends Context.Service<
+@@ -68,18 +83,24 @@ export class DirenvEnvironment extends Context.Service<
        cwd: string,
        previous?: DirenvEnvironmentDiff,
      ) => Effect.Effect<DirenvLoadResult>;
@@ -1404,7 +1401,7 @@ index 7cb6798076..88ecd75fb5 100644
  export function direnvFailureNotice(failure: DirenvLoadFailure): {
    readonly message: string;
    readonly detail: string;
-@@ -123,7 +143,10 @@ const make = Effect.fn("DirenvEnvironment.make")(function* () {
+@@ -122,7 +143,10 @@ const make = Effect.fn("DirenvEnvironment.make")(function* () {
    const platform = yield* HostProcess.Platform;
  
    const findEnvrc = Effect.fn("DirenvEnvironment.findEnvrc")(function* (cwd: string) {
@@ -1416,7 +1413,7 @@ index 7cb6798076..88ecd75fb5 100644
      while (true) {
        const candidate = path.join(directory, ".envrc");
        if (yield* fileSystem.exists(candidate).pipe(Effect.orElseSucceed(() => false))) {
-@@ -208,21 +231,78 @@ const make = Effect.fn("DirenvEnvironment.make")(function* () {
+@@ -207,21 +231,78 @@ const make = Effect.fn("DirenvEnvironment.make")(function* () {
        );
      });
  
@@ -1506,10 +1503,10 @@ index 7cb6798076..88ecd75fb5 100644
  
  export const layer = Layer.effect(DirenvEnvironment, make());
 diff --git a/apps/server/src/server.ts b/apps/server/src/server.ts
-index 116bb1d3af..e88b3cb8db 100644
+index 61024f6f93..c482d4ccf4 100644
 --- a/apps/server/src/server.ts
 +++ b/apps/server/src/server.ts
-@@ -96,6 +96,7 @@ import * as ServerBrowserStream from "./preview/ServerBrowserStream.ts";
+@@ -103,6 +103,7 @@ import * as ServerBrowserStream from "./preview/ServerBrowserStream.ts";
  import * as PreviewBrowser from "./preview/PreviewBrowser.ts";
  import * as ProcessRunner from "./processRunner.ts";
  import * as DirenvEnvironment from "./provider/DirenvEnvironment.ts";
@@ -1517,7 +1514,7 @@ index 116bb1d3af..e88b3cb8db 100644
  import * as GitManager from "./git/GitManager.ts";
  import * as EnvironmentTheme from "./environmentTheme.ts";
  import * as Keybindings from "./keybindings.ts";
-@@ -566,6 +567,12 @@ const layerScheduledTaskWebhookOrigin = Layer.effect(
+@@ -598,6 +599,12 @@ const layerScheduledTaskWebhookOrigin = Layer.effect(
  );
  
  const layerOrchestrationV2Runtime = RuntimeLayer.layerProduction.pipe(
@@ -1528,13 +1525,13 @@ index 116bb1d3af..e88b3cb8db 100644
 +    ),
 +  ),
    Layer.provideMerge(DirenvEnvironment.layer.pipe(Layer.provide(ProcessRunner.layer))),
+   Layer.provide(UsageLimitSources.layerResetFallback),
    Layer.provide(layerScheduledTaskWebhookOrigin),
-   Layer.provide(ProviderUsageAnalytics.layer),
 diff --git a/apps/server/src/ws.ts b/apps/server/src/ws.ts
-index ef418e8c2d..75f80dbc07 100644
+index 1b06eb01b1..1ff03e3ade 100644
 --- a/apps/server/src/ws.ts
 +++ b/apps/server/src/ws.ts
-@@ -221,7 +221,7 @@ import { threadWorkspaceRoot } from "./project/threadWorkspaceRoot.ts";
+@@ -225,7 +225,7 @@ import { threadWorkspaceRoot } from "./project/threadWorkspaceRoot.ts";
  import * as ManagedProjectFolders from "./project/ManagedProjectFolders.ts";
  import * as ScratchThreadPromotion from "./project/ScratchThreadPromotion.ts";
  import { mutateProjectWithClone } from "./project/ProjectMutation.ts";
@@ -1543,7 +1540,7 @@ index ef418e8c2d..75f80dbc07 100644
  import * as ProjectCloneTracker from "./project/ProjectCloneTracker.ts";
  import * as RepositoryIdentityResolver from "./project/RepositoryIdentityResolver.ts";
  import * as WorktreeSetupTracker from "./project/WorktreeSetupTracker.ts";
-@@ -1483,38 +1483,9 @@ export const layerWsRpc = (
+@@ -1507,38 +1507,9 @@ export const layerWsRpc = (
        const repositoryIdentityResolver =
          yield* RepositoryIdentityResolver.RepositoryIdentityResolver;
        const projectEnrichment = yield* ProjectEnrichmentService.ProjectEnrichmentService;
@@ -1585,7 +1582,7 @@ index ef418e8c2d..75f80dbc07 100644
        const agentSessionScanner = yield* AgentSessionScanner.AgentSessionScanner;
        const agentSessionImporter = yield* AgentSessionImporter.AgentSessionImporter;
        const checkpointDiffQuery = yield* CheckpointDiffQuery.CheckpointDiffQuery;
-@@ -3185,7 +3156,22 @@ export const layerWsRpc = (
+@@ -3150,7 +3121,22 @@ export const layerWsRpc = (
            worktreeSetupTracker
              .cancel(input.threadId)
              .pipe(Effect.map((cancelled) => ({ cancelled }))),
@@ -1610,7 +1607,7 @@ index ef418e8c2d..75f80dbc07 100644
            vcsStatusBroadcaster.refreshStatus(input.cwd, { localOnly: input.localOnly ?? false }),
          [WS_METHODS.vcsPull]: (input) =>
 diff --git a/apps/web/src/components/chat/TimelineWorkEntryRow.tsx b/apps/web/src/components/chat/TimelineWorkEntryRow.tsx
-index e31948dfc0..9bd971a291 100644
+index 385341f973..c5663ae919 100644
 --- a/apps/web/src/components/chat/TimelineWorkEntryRow.tsx
 +++ b/apps/web/src/components/chat/TimelineWorkEntryRow.tsx
 @@ -13,7 +13,6 @@ import {
@@ -1621,7 +1618,7 @@ index e31948dfc0..9bd971a291 100644
  import { Link } from "@tanstack/react-router";
  import { notificationChildThreadId } from "@t3tools/client-runtime/state/thread-execution";
  import {
-@@ -38,9 +37,9 @@ import { ChevronRightIcon, CircleAlertIcon, XIcon, RotateCcwIcon } from "lucide-
+@@ -40,9 +39,9 @@ import { ChevronRightIcon, CircleAlertIcon, XIcon, RotateCcwIcon } from "lucide-
  import { Button, InlineButton } from "../ui/button";
  import { useAssetUrls } from "../../assets/assetUrls";
  import { useThreadShell } from "../../state/entities";
@@ -1634,8 +1631,8 @@ index e31948dfc0..9bd971a291 100644
  import {
    threadReadLabelPrefix,
    threadReadTargetId,
-@@ -155,61 +154,26 @@ type WorkEntryRowProps = {
-   onToggleEntry?: ((collapsed: boolean) => void) | undefined;
+@@ -159,61 +158,26 @@ type WorkEntryRowProps = {
+   onContentReady?: (() => void) | undefined;
  };
  
 -/** Allows the thread's blocked `.envrc`; the next message loads it. */
@@ -1706,15 +1703,15 @@ index e31948dfc0..9bd971a291 100644
      </Button>
    );
  }
-@@ -590,7 +554,7 @@ function WorkEntryLogRow(props: WorkEntryRowProps) {
-             <XIcon aria-hidden className={cn("size-3 shrink-0", failedToolIconClassName)} />
+@@ -619,7 +583,7 @@ function WorkEntryLogRow(props: WorkEntryRowProps) {
+             </span>
            ) : null}
            {workEntry.warningAction?.type === "direnv.allow" && threadRef ? (
 -            <AllowDirenvButton threadRef={threadRef} warningId={workEntry.id} />
 +            <ReviewEnvrcButton threadRef={threadRef} />
            ) : null}
            <TimelineRowTimestamp createdAt={workEntry.createdAt} timestampFormat={timestampFormat} />
-           <span
+         </>
 diff --git a/apps/web/src/state/projectEnvironment.ts b/apps/web/src/state/projectEnvironment.ts
 new file mode 100644
 index 0000000000..5c3ad27ae0
@@ -1748,10 +1745,10 @@ index 0000000000..5c3ad27ae0
 +    }),
 +});
 diff --git a/packages/client-runtime/package.json b/packages/client-runtime/package.json
-index c9e1260b95..7fe65a3f8e 100644
+index d303b27c87..41ab08f816 100644
 --- a/packages/client-runtime/package.json
 +++ b/packages/client-runtime/package.json
-@@ -151,6 +151,10 @@
+@@ -163,6 +163,10 @@
        "types": "./src/relay/index.ts",
        "default": "./src/relay/index.ts"
      },
@@ -1763,23 +1760,22 @@ index c9e1260b95..7fe65a3f8e 100644
        "types": "./src/state/auth.ts",
        "default": "./src/state/auth.ts"
 diff --git a/packages/client-runtime/src/state/commandPermissions.test.ts b/packages/client-runtime/src/state/commandPermissions.test.ts
-index 0566ad651c..c944fa6649 100644
+index a40b01e474..1478958bdc 100644
 --- a/packages/client-runtime/src/state/commandPermissions.test.ts
 +++ b/packages/client-runtime/src/state/commandPermissions.test.ts
-@@ -183,11 +183,11 @@ describe("command permissions", () => {
-     ),
+@@ -175,10 +175,10 @@ describe("command permissions", () => {
+     }),
    );
  
 -  it.effect("requires the destination operate grant to allow a project's .envrc", () =>
 +  it.effect("requires the destination operate grant to approve a project's .envrc", () =>
-     Effect.scoped(
-       Effect.gen(function* () {
-         const registry = yield* setup;
--        const allow = createCommandPermissions(runtime, WS_METHODS.projectEnvironmentAllowDirenv);
-+        const allow = createCommandPermissions(runtime, WS_METHODS.projectEnvironmentApprove);
-         registry.set(sessions(env), AsyncResult.success(grant(false)));
-         expect(registry.get(allow.permissionAtom(env))).toBe(false);
-         expect((yield* allow.authorize(registry, env).pipe(Effect.flip))._tag).toBe(
+     Effect.gen(function* () {
+       const registry = yield* setup;
+-      const allow = createCommandPermissions(runtime, WS_METHODS.projectEnvironmentAllowDirenv);
++      const allow = createCommandPermissions(runtime, WS_METHODS.projectEnvironmentApprove);
+       registry.set(sessions(env), AsyncResult.success(grant(false)));
+       expect(registry.get(allow.permissionAtom(env))).toBe(false);
+       expect((yield* allow.authorize(registry, env).pipe(Effect.flip))._tag).toBe(
 diff --git a/packages/client-runtime/src/state/projectEnvironment.test.ts b/packages/client-runtime/src/state/projectEnvironment.test.ts
 new file mode 100644
 index 0000000000..c76e2d6ccd
@@ -1986,10 +1982,10 @@ index 0000000000..1410275293
 +  return lines;
 +}
 diff --git a/packages/client-runtime/src/state/threadCommands.ts b/packages/client-runtime/src/state/threadCommands.ts
-index d3344081b8..3761d0fa6e 100644
+index 9240ceeefe..0e9de03f5c 100644
 --- a/packages/client-runtime/src/state/threadCommands.ts
 +++ b/packages/client-runtime/src/state/threadCommands.ts
-@@ -381,10 +381,6 @@ export function createThreadEnvironmentAtoms<R, E>(
+@@ -421,10 +421,6 @@ export function createThreadEnvironmentAtoms<R, E>(
        scheduler,
        concurrency,
      }),
@@ -1998,13 +1994,13 @@ index d3344081b8..3761d0fa6e 100644
 -      tag: WS_METHODS.projectEnvironmentAllowDirenv,
 -    }),
    };
-   const optimistic = createOptimisticThreadLifecycle(snapshotAtom);
-   return {
+   const commands = {
+     ...sent,
 diff --git a/packages/contracts/src/clientRpcPermissions.ts b/packages/contracts/src/clientRpcPermissions.ts
-index 66248754ee..12a1d420a3 100644
+index 772a3f0011..e1f7e61b64 100644
 --- a/packages/contracts/src/clientRpcPermissions.ts
 +++ b/packages/contracts/src/clientRpcPermissions.ts
-@@ -68,7 +68,7 @@ export const CLIENT_GUARDED_RPC_SCOPES = {
+@@ -69,7 +69,7 @@ export const CLIENT_GUARDED_RPC_SCOPES = {
    [WS_METHODS.scheduledTasksDelete]: AuthOrchestrationOperateScope,
    [WS_METHODS.scheduledTasksRunNow]: AuthOrchestrationOperateScope,
    [WS_METHODS.scheduledTasksRotateWebhookToken]: AuthOrchestrationOperateScope,
@@ -2084,10 +2080,10 @@ index 37a2292453..1f0c69bead 100644
 -export type ProjectEnvironmentAllowDirenvResult = typeof ProjectEnvironmentAllowDirenvResult.Type;
 +export type ProjectEnvironmentApproveResult = typeof ProjectEnvironmentApproveResult.Type;
 diff --git a/packages/contracts/src/rpc.ts b/packages/contracts/src/rpc.ts
-index 3b8955b0c7..04c993b9ee 100644
+index fc7b67ae54..a1602609eb 100644
 --- a/packages/contracts/src/rpc.ts
 +++ b/packages/contracts/src/rpc.ts
-@@ -118,8 +118,10 @@ import {
+@@ -120,8 +120,10 @@ import {
    OrchestrationGetTurnDiffError,
  } from "./checkpointDiff.ts";
  import {
@@ -2100,7 +2096,7 @@ index 3b8955b0c7..04c993b9ee 100644
  } from "./projectEnvironment.ts";
  import {
    WorktreeSetupCancelInput,
-@@ -620,7 +622,8 @@ export const WS_METHODS = {
+@@ -625,7 +627,8 @@ export const WS_METHODS = {
    vcsRefreshBranch: "vcs.refreshBranch",
    subscribeWorktreeSetup: "subscribeWorktreeSetup",
    worktreeSetupCancel: "worktreeSetup.cancel",
@@ -2110,7 +2106,7 @@ index 3b8955b0c7..04c993b9ee 100644
    subscribeTerminalMetadata: "subscribeTerminalMetadata",
    subscribePreviewEvents: "subscribePreviewEvents",
    subscribeDiscoveredLocalServers: "subscribeDiscoveredLocalServers",
-@@ -1532,9 +1535,15 @@ const WsWorktreeSetupCancelRpc = Rpc.make(WS_METHODS.worktreeSetupCancel, {
+@@ -1571,9 +1574,15 @@ const WsWorktreeSetupCancelRpc = Rpc.make(WS_METHODS.worktreeSetupCancel, {
    error: EnvironmentAuthorizationError,
  });
  
@@ -2129,7 +2125,7 @@ index 3b8955b0c7..04c993b9ee 100644
    error: EnvironmentAuthorizationError,
  });
  
-@@ -2223,7 +2232,8 @@ export const WsRpcGroup = RpcGroup.make(
+@@ -2272,7 +2281,8 @@ export const WsRpcGroup = RpcGroup.make(
    WsVcsRefreshBranchRpc,
    WsSubscribeWorktreeSetupRpc,
    WsWorktreeSetupCancelRpc,
@@ -2140,10 +2136,10 @@ index 3b8955b0c7..04c993b9ee 100644
    WsVcsRefreshStatusRpc,
    WsGitRunStackedActionRpc,
 diff --git a/packages/contracts/src/settings.ts b/packages/contracts/src/settings.ts
-index bdb3f3ec7e..77cbc5ed67 100644
+index 05878ec27f..1f8e815eee 100644
 --- a/packages/contracts/src/settings.ts
 +++ b/packages/contracts/src/settings.ts
-@@ -1161,6 +1161,7 @@ export const PROJECT_SCOPED_SERVER_SETTING_KEYS = [
+@@ -1181,6 +1181,7 @@ export const PROJECT_SCOPED_SERVER_SETTING_KEYS = [
    "enableAgentBrowserAccess",
    "enableAgentDeviceAccess",
    "enableDirenvEnvironment",
@@ -2151,7 +2147,7 @@ index bdb3f3ec7e..77cbc5ed67 100644
    "textGenerationModelSelection",
    "threadTitleInstructions",
    "sourceControlWriterModelSelection",
-@@ -1200,6 +1201,7 @@ export const ProjectSettingsOverrides = Schema.Struct({
+@@ -1220,6 +1221,7 @@ export const ProjectSettingsOverrides = Schema.Struct({
    enableAgentBrowserAccess: Schema.optionalKey(Schema.Boolean),
    enableAgentDeviceAccess: Schema.optionalKey(Schema.Boolean),
    enableDirenvEnvironment: Schema.optionalKey(Schema.Boolean),
@@ -2159,7 +2155,7 @@ index bdb3f3ec7e..77cbc5ed67 100644
    textGenerationModelSelection: Schema.optionalKey(ModelSelection),
    threadTitleInstructions: Schema.optionalKey(TrimmedString),
    sourceControlWriterModelSelection: Schema.optionalKey(Schema.NullOr(ModelSelection)),
-@@ -1414,11 +1416,13 @@ export const ServerSettings = Schema.Struct({
+@@ -1440,11 +1442,13 @@ export const ServerSettings = Schema.Struct({
  
    enableAgentDeviceAccess: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(false))),
    /**
@@ -2176,7 +2172,7 @@ index bdb3f3ec7e..77cbc5ed67 100644
    /** Enabling the Device panel must not grant providers device control. */
    enableDeviceSupport: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(false))),
    deviceOnboardingCompleted: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(false))),
-@@ -1860,6 +1864,7 @@ export const ServerSettingsPatch = Schema.Struct({
+@@ -1898,6 +1902,7 @@ export const ServerSettingsPatch = Schema.Struct({
    ),
    enableAgentDeviceAccess: Schema.optionalKey(Schema.Boolean),
    enableDirenvEnvironment: Schema.optionalKey(Schema.Boolean),

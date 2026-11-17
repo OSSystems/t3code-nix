@@ -1,23 +1,23 @@
-From 9d0f76d99a7d576dbe0911c858932472041d95cf Mon Sep 17 00:00:00 2001
+From bad0dd99eccf1fea0e55e84ce2f43ae939fe9d8a Mon Sep 17 00:00:00 2001
 From: Otavio Salvador <otavio@ossystems.com.br>
 Date: Fri, 30 Oct 2026 07:59:53 -0300
-Subject: [PATCH 05/16] feat(server): Codex runs one shared process per project
+Subject: [PATCH 05/13] feat(server): Codex runs one shared process per project
 
 One provider process carries one environment, so sharing a Codex app-server across projects
 would give every project the first one's direnv environment. Derive the shared session per
 project; threads with a stored session id keep it.
 ---
  .../Orchestrator.control-reads.test.ts        | 44 +++++++++++++++++++
- .../src/orchestration-v2/Orchestrator.ts      |  8 ++++
- .../ProviderSessionManager.test.ts            | 10 +++++
+ .../src/orchestration-v2/Orchestrator.ts      |  7 +++
+ .../ProviderSessionManager.test.ts            | 13 ++++++
  .../provider-core/src/server/IdAllocator.ts   |  9 +++-
- 4 files changed, 70 insertions(+), 1 deletion(-)
+ 4 files changed, 72 insertions(+), 1 deletion(-)
 
 diff --git a/apps/server/src/orchestration-v2/Orchestrator.control-reads.test.ts b/apps/server/src/orchestration-v2/Orchestrator.control-reads.test.ts
-index d79d1a2d9c..375007f2df 100644
+index 214f6cf360..d9b18ca235 100644
 --- a/apps/server/src/orchestration-v2/Orchestrator.control-reads.test.ts
 +++ b/apps/server/src/orchestration-v2/Orchestrator.control-reads.test.ts
-@@ -386,6 +386,50 @@ it.effect(
+@@ -400,6 +400,50 @@ it.effect(
      }).pipe(Effect.provide(layerTest)),
  );
  
@@ -69,18 +69,10 @@ index d79d1a2d9c..375007f2df 100644
    Effect.gen(function* () {
      const orchestrator = yield* Orchestrator.OrchestratorV2;
 diff --git a/apps/server/src/orchestration-v2/Orchestrator.ts b/apps/server/src/orchestration-v2/Orchestrator.ts
-index 636a843e2b..5fe1120e50 100644
+index 2805935d38..28097a3ab4 100644
 --- a/apps/server/src/orchestration-v2/Orchestrator.ts
 +++ b/apps/server/src/orchestration-v2/Orchestrator.ts
-@@ -63,6 +63,7 @@ import {
-   parseGoalCommand,
-   orchestrationV2RunWorkStartedAt,
-   orchestrationV2WorktreePending,
-+  type ProjectId,
-   ProviderInstanceId,
-   ProviderInteractionMode,
-   isRuntimeModeAbove,
-@@ -1260,13 +1261,16 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
+@@ -1665,13 +1665,16 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
      readonly adapter: ProviderAdapter.ProviderAdapterV2["Service"];
      readonly providerInstanceId: ProviderInstanceId;
      readonly threadId: ThreadId;
@@ -97,7 +89,7 @@ index 636a843e2b..5fe1120e50 100644
                }),
              )
            : idAllocator.allocate.providerSession({
-@@ -2378,6 +2382,7 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
+@@ -2922,6 +2925,7 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
                adapter,
                providerInstanceId: queuedRun.providerInstanceId,
                threadId,
@@ -105,7 +97,7 @@ index 636a843e2b..5fe1120e50 100644
              }),
            ),
            Effect.mapError(
-@@ -5576,6 +5581,7 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
+@@ -6394,6 +6398,7 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
              adapter: targetAdapter,
              providerInstanceId: input.modelSelection.instanceId,
              threadId: input.command.threadId,
@@ -113,7 +105,7 @@ index 636a843e2b..5fe1120e50 100644
            }),
          ));
        const targetProviderThreadBase: OrchestrationV2ProviderThread =
-@@ -6930,6 +6936,7 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
+@@ -7986,6 +7991,7 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
              adapter,
              providerInstanceId: modelSelection.instanceId,
              threadId: command.threadId,
@@ -121,7 +113,7 @@ index 636a843e2b..5fe1120e50 100644
            }),
          ));
        const providerThreadId =
-@@ -7356,6 +7363,7 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
+@@ -8423,6 +8429,7 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
            adapter,
            providerInstanceId: modelSelection.instanceId,
            threadId: command.threadId,
@@ -130,10 +122,10 @@ index 636a843e2b..5fe1120e50 100644
        ));
      const existingProviderSession = projection.providerSessions.find(
 diff --git a/apps/server/src/orchestration-v2/ProviderSessionManager.test.ts b/apps/server/src/orchestration-v2/ProviderSessionManager.test.ts
-index 2c75779853..9dbb666887 100644
+index 84604a86bb..235f6a204b 100644
 --- a/apps/server/src/orchestration-v2/ProviderSessionManager.test.ts
 +++ b/apps/server/src/orchestration-v2/ProviderSessionManager.test.ts
-@@ -326,6 +326,7 @@ const makeNativeChildFixture = Effect.fnUntraced(function* () {
+@@ -348,6 +348,7 @@ const makeNativeChildFixture = Effect.fnUntraced(function* () {
    const childThreadId = ThreadId.make("native-child");
    const providerSessionId = idAllocator.derive.providerSession({
      providerInstanceId: modelSelection.instanceId,
@@ -141,7 +133,7 @@ index 2c75779853..9dbb666887 100644
    });
    const childThreadEvent = yield* makeThreadCreatedEvent({
      idAllocator,
-@@ -1303,6 +1304,7 @@ it.effect(
+@@ -1413,6 +1414,7 @@ it.effect(
          const threadB = ThreadId.make("thread-provider-session-manager-shared-stopped-b");
          const providerSessionId = idAllocator.derive.providerSession({
            providerInstanceId: modelSelection.instanceId,
@@ -149,7 +141,7 @@ index 2c75779853..9dbb666887 100644
          });
          yield* eventSink.write({
            events: [
-@@ -1392,6 +1394,7 @@ it.effect(
+@@ -1502,6 +1504,7 @@ it.effect(
          const threadB = ThreadId.make("thread-provider-session-manager-stopped-ended-b");
          const providerSessionId = idAllocator.derive.providerSession({
            providerInstanceId: modelSelection.instanceId,
@@ -157,7 +149,23 @@ index 2c75779853..9dbb666887 100644
          });
          yield* eventSink.write({
            events: [
-@@ -1542,6 +1545,7 @@ it.effect(
+@@ -1650,6 +1653,7 @@ it.effect("ProviderSessionManagerV2 resumes a thread natively again after its st
+       const threadId = ThreadId.make("thread-provider-session-manager-failed-start-resume");
+       const providerSessionId = idAllocator.derive.providerSession({
+         providerInstanceId: modelSelection.instanceId,
++        projectId: ProjectId.make("project-provider-session-manager"),
+       });
+       yield* eventSink.write({
+         events: [yield* makeThreadCreatedEvent({ idAllocator, threadId, now })],
+@@ -1729,6 +1733,7 @@ it.effect("ProviderSessionManagerV2 still idles out a session releaseUnlessBusy
+       const threadId = ThreadId.make("thread-provider-session-manager-kept-idles");
+       const providerSessionId = idAllocator.derive.providerSession({
+         providerInstanceId: modelSelection.instanceId,
++        projectId: ProjectId.make("project-provider-session-manager"),
+       });
+       yield* eventSink.write({
+         events: [yield* makeThreadCreatedEvent({ idAllocator, threadId, now })],
+@@ -1799,6 +1804,7 @@ it.effect(
          const sibling = ThreadId.make("thread-provider-session-manager-release-sibling");
          const providerSessionId = idAllocator.derive.providerSession({
            providerInstanceId: modelSelection.instanceId,
@@ -165,7 +173,7 @@ index 2c75779853..9dbb666887 100644
          });
          yield* eventSink.write({
            events: [
-@@ -2293,6 +2297,7 @@ it.effect(
+@@ -2779,6 +2785,7 @@ it.effect(
          const threadId = ThreadId.make("thread-provider-session-manager-attach-race");
          const providerSessionId = idAllocator.derive.providerSession({
            providerInstanceId: modelSelection.instanceId,
@@ -173,7 +181,7 @@ index 2c75779853..9dbb666887 100644
          });
          yield* eventSink.write({
            events: [
-@@ -2356,6 +2361,7 @@ it.effect(
+@@ -2842,6 +2849,7 @@ it.effect(
          const threadId = ThreadId.make("thread-provider-session-manager-stale-attach");
          const providerSessionId = idAllocator.derive.providerSession({
            providerInstanceId: modelSelection.instanceId,
@@ -181,7 +189,7 @@ index 2c75779853..9dbb666887 100644
          });
          yield* eventSink.write({
            events: [
-@@ -2448,6 +2454,7 @@ it.effect(
+@@ -2934,6 +2942,7 @@ it.effect(
          const threadId = ThreadId.make("thread-provider-session-manager-resolve-stop");
          const providerSessionId = idAllocator.derive.providerSession({
            providerInstanceId: modelSelection.instanceId,
@@ -189,7 +197,7 @@ index 2c75779853..9dbb666887 100644
          });
          yield* eventSink.write({
            events: [
-@@ -3890,6 +3897,7 @@ it.effect(
+@@ -4665,6 +4674,7 @@ it.effect.each([
          });
          const providerSessionId = idAllocator.derive.providerSession({
            providerInstanceId: modelSelection.instanceId,
@@ -197,7 +205,7 @@ index 2c75779853..9dbb666887 100644
          });
  
          yield* eventSink.write({
-@@ -4068,6 +4076,7 @@ it.effect(
+@@ -4945,6 +4955,7 @@ it.effect(
          });
          const providerSessionId = idAllocator.derive.providerSession({
            providerInstanceId: modelSelection.instanceId,
@@ -205,7 +213,15 @@ index 2c75779853..9dbb666887 100644
          });
          const parentProviderThread = makeProviderThread({
            idAllocator,
-@@ -4378,6 +4387,7 @@ it.effect(
+@@ -5245,6 +5256,7 @@ it.effect.each([
+         const parentRunId = idAllocator.derive.run({ threadId: parentThreadId, ordinal: 1 });
+         const providerSessionId = idAllocator.derive.providerSession({
+           providerInstanceId: modelSelection.instanceId,
++          projectId: ProjectId.make("project-provider-session-manager"),
+         });
+         yield* eventSink.write({
+           events: [yield* makeThreadCreatedEvent({ idAllocator, threadId: parentThreadId, now })],
+@@ -5418,6 +5430,7 @@ it.effect(
          });
          const providerSessionId = idAllocator.derive.providerSession({
            providerInstanceId: modelSelection.instanceId,
@@ -214,10 +230,10 @@ index 2c75779853..9dbb666887 100644
          const providerThread = makeProviderThread({
            idAllocator,
 diff --git a/packages/provider-core/src/server/IdAllocator.ts b/packages/provider-core/src/server/IdAllocator.ts
-index 04c1e0396a..24559868fb 100644
+index b03a98cc4e..659460cdc8 100644
 --- a/packages/provider-core/src/server/IdAllocator.ts
 +++ b/packages/provider-core/src/server/IdAllocator.ts
-@@ -129,6 +129,7 @@ export interface IdAllocatorV2Allocate {
+@@ -132,6 +132,7 @@ export interface IdAllocatorV2Allocate {
  export interface IdAllocatorV2Derive {
    readonly providerSession: (input: {
      readonly providerInstanceId: ProviderInstanceId;
@@ -225,7 +241,7 @@ index 04c1e0396a..24559868fb 100644
    }) => ProviderSessionId;
    readonly delegatedTaskNode: (input: { readonly commandId: CommandId }) => NodeId;
    readonly delegatedTaskThread: (input: { readonly commandId: CommandId }) => ThreadId;
-@@ -254,7 +255,13 @@ const randomId =
+@@ -279,7 +280,13 @@ export const isDelegatedTaskThread = (threadId: ThreadId): boolean =>
  export const derive: IdAllocatorV2Derive = {
    providerSession: (input) =>
      ProviderSessionId.make(
