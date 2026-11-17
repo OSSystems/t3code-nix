@@ -1,7 +1,7 @@
-From d462d1ec29cd997b95181cf60cea3dac671d0bfd Mon Sep 17 00:00:00 2001
+From a08b806db0d4d63db7b608edf87ca2f5fd74c43e Mon Sep 17 00:00:00 2001
 From: Otavio Salvador <otavio@ossystems.com.br>
 Date: Sun, 11 Oct 2026 22:52:05 -0300
-Subject: [PATCH 02/16] fix(clients): hide Allow .envrc from clients without
+Subject: [PATCH 02/13] fix(clients): hide Allow .envrc from clients without
  the operate grant
 
 Allowing a project's .envrc is guarded by the orchestration operate grant,
@@ -10,13 +10,13 @@ session only learned it couldn't act after clicking. The buttons now read
 the command's permission for the thread's environment and stay hidden
 without the grant; the warning itself still shows.
 ---
- .../src/features/threads/thread-work-log.tsx    |  3 +++
- .../components/chat/TimelineWorkEntryRow.tsx    |  6 ++++++
- .../src/state/commandPermissions.test.ts        | 17 +++++++++++++++++
- 3 files changed, 26 insertions(+)
+ .../src/features/threads/thread-work-log.tsx      |  3 +++
+ .../src/components/chat/TimelineWorkEntryRow.tsx  |  6 ++++++
+ .../src/state/commandPermissions.test.ts          | 15 +++++++++++++++
+ 3 files changed, 24 insertions(+)
 
 diff --git a/apps/mobile/src/features/threads/thread-work-log.tsx b/apps/mobile/src/features/threads/thread-work-log.tsx
-index a6dfb0d93c..1f745b1376 100644
+index e22d42f393..f0113aaea5 100644
 --- a/apps/mobile/src/features/threads/thread-work-log.tsx
 +++ b/apps/mobile/src/features/threads/thread-work-log.tsx
 @@ -878,6 +878,9 @@ function AllowDirenvButton(props: {
@@ -30,7 +30,7 @@ index a6dfb0d93c..1f745b1376 100644
      <Pressable
        accessibilityRole="button"
 diff --git a/apps/web/src/components/chat/TimelineWorkEntryRow.tsx b/apps/web/src/components/chat/TimelineWorkEntryRow.tsx
-index f6e940acd8..e31948dfc0 100644
+index b523033155..385341f973 100644
 --- a/apps/web/src/components/chat/TimelineWorkEntryRow.tsx
 +++ b/apps/web/src/components/chat/TimelineWorkEntryRow.tsx
 @@ -13,6 +13,7 @@ import {
@@ -41,7 +41,7 @@ index f6e940acd8..e31948dfc0 100644
  import { Link } from "@tanstack/react-router";
  import { notificationChildThreadId } from "@t3tools/client-runtime/state/thread-execution";
  import {
-@@ -169,6 +170,11 @@ function AllowDirenvButton({
+@@ -173,6 +174,11 @@ function AllowDirenvButton({
    const [state, setState] = useState<"idle" | "pending" | "allowed">(() =>
      allowedDirenvWarnings.has(warningId) ? "allowed" : "idle",
    );
@@ -54,33 +54,31 @@ index f6e940acd8..e31948dfc0 100644
      event.stopPropagation();
      setState("pending");
 diff --git a/packages/client-runtime/src/state/commandPermissions.test.ts b/packages/client-runtime/src/state/commandPermissions.test.ts
-index d8da76a4b6..0566ad651c 100644
+index 718a9dda93..a40b01e474 100644
 --- a/packages/client-runtime/src/state/commandPermissions.test.ts
 +++ b/packages/client-runtime/src/state/commandPermissions.test.ts
-@@ -183,6 +183,23 @@ describe("command permissions", () => {
-     ),
+@@ -175,6 +175,21 @@ describe("command permissions", () => {
+     }),
    );
  
 +  it.effect("requires the destination operate grant to allow a project's .envrc", () =>
-+    Effect.scoped(
-+      Effect.gen(function* () {
-+        const registry = yield* setup;
-+        const allow = createCommandPermissions(runtime, WS_METHODS.projectEnvironmentAllowDirenv);
-+        registry.set(sessions(env), AsyncResult.success(grant(false)));
-+        expect(registry.get(allow.permissionAtom(env))).toBe(false);
-+        expect((yield* allow.authorize(registry, env).pipe(Effect.flip))._tag).toBe(
-+          "EnvironmentAuthorizationError",
-+        );
-+        registry.set(sessions(env), AsyncResult.success(grant(true)));
-+        expect(registry.get(allow.permissionAtom(env))).toBe(true);
-+        yield* allow.authorize(registry, env);
-+      }),
-+    ),
++    Effect.gen(function* () {
++      const registry = yield* setup;
++      const allow = createCommandPermissions(runtime, WS_METHODS.projectEnvironmentAllowDirenv);
++      registry.set(sessions(env), AsyncResult.success(grant(false)));
++      expect(registry.get(allow.permissionAtom(env))).toBe(false);
++      expect((yield* allow.authorize(registry, env).pipe(Effect.flip))._tag).toBe(
++        "EnvironmentAuthorizationError",
++      );
++      registry.set(sessions(env), AsyncResult.success(grant(true)));
++      expect(registry.get(allow.permissionAtom(env))).toBe(true);
++      yield* allow.authorize(registry, env);
++    }),
 +  );
 +
-   it.effect("requires the destination settings grant to check OTLP endpoints", () =>
-     Effect.scoped(
-       Effect.gen(function* () {
+   it.effect.each([WS_METHODS.serverCheckOtlpEndpoint, WS_METHODS.serverCheckSecretSource])(
+     "requires the destination settings grant for %s",
+     (method) =>
 -- 
 2.56.0
 

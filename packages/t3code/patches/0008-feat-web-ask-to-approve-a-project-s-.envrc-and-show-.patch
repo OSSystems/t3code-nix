@@ -1,7 +1,7 @@
-From 6c2832ed57c872f3a7497267243702499de27ee7 Mon Sep 17 00:00:00 2001
+From 6c3f0ee922d7992445bfd98cbcc0a4bbecc8bcb8 Mon Sep 17 00:00:00 2001
 From: Otavio Salvador <otavio@ossystems.com.br>
 Date: Fri, 30 Oct 2026 08:00:08 -0300
-Subject: [PATCH 08/16] feat(web): ask to approve a project's .envrc and show
+Subject: [PATCH 08/13] feat(web): ask to approve a project's .envrc and show
  whether direnv is on
 
 A banner above the composer shows the .envrc, or the diff of a change, to approve, turn off, or
@@ -21,10 +21,10 @@ Settings > Worktrees holds the project's direnv and trust-changes settings.
  create mode 100644 apps/web/src/components/settings/ProjectEnvironmentSettings.tsx
 
 diff --git a/apps/web/src/components/ChatView.tsx b/apps/web/src/components/ChatView.tsx
-index f4561188df..4c8fd9681b 100644
+index fbec562059..c62d4a8b8a 100644
 --- a/apps/web/src/components/ChatView.tsx
 +++ b/apps/web/src/components/ChatView.tsx
-@@ -315,6 +315,7 @@ import { useProactivePanels } from "../hooks/useProactivePanels";
+@@ -337,6 +337,7 @@ import { useProactivePanels } from "../hooks/useProactivePanels";
  import { useIncrementalTimelineEntries } from "../hooks/useIncrementalTimelineEntries";
  import { useRightPanelSurfaceClose } from "../hooks/useRightPanelSurfaceClose";
  import { ComposerBannerStack, type ComposerBannerStackItem } from "./chat/ComposerBannerStack";
@@ -32,7 +32,7 @@ index f4561188df..4c8fd9681b 100644
  import { modelFallbackBannerItem } from "./chat/ComposerUsageLimits";
  import { ComposerSurface } from "./chat/ComposerSurface";
  import { resolveThreadSyncPhase } from "../threadSync";
-@@ -1115,6 +1116,10 @@ export default function ChatView(props: ChatViewProps) {
+@@ -1144,6 +1145,10 @@ export default function ChatView(props: ChatViewProps) {
    const activeProjectScripts = activeProject ? resolveProjectScripts(settings, activeProject) : [];
    const { projectCloneBannerItem, projectCloneSendBlockReason } =
      useProjectCloneBanner(activeProjectRef);
@@ -43,7 +43,7 @@ index f4561188df..4c8fd9681b 100644
    const activeProjectDefaultModelSelection =
      !isServerThread && draftFallback
        ? draftFallback.selection
-@@ -2605,6 +2610,8 @@ export default function ChatView(props: ChatViewProps) {
+@@ -2666,6 +2671,8 @@ export default function ChatView(props: ChatViewProps) {
        freshSessionAvailable && freshSessionArmed && activePendingApproval === null
          ? [freshSessionBannerItem(() => disarmFreshSession(routeThreadKey))]
          : [];
@@ -52,7 +52,7 @@ index f4561188df..4c8fd9681b 100644
      if (!localCheckoutBranchMismatch || !showBranchMismatchBanner || !activeBranchMismatchKey) {
        return [
          ...feedbackBannerItems,
-@@ -2614,6 +2621,7 @@ export default function ChatView(props: ChatViewProps) {
+@@ -2675,6 +2682,7 @@ export default function ChatView(props: ChatViewProps) {
          ...usageLimitsItems,
          ...projectCloneItems,
          ...freshSessionItems,
@@ -60,7 +60,7 @@ index f4561188df..4c8fd9681b 100644
          ...systemComposerBannerItems,
        ];
      }
-@@ -2625,6 +2633,7 @@ export default function ChatView(props: ChatViewProps) {
+@@ -2686,6 +2694,7 @@ export default function ChatView(props: ChatViewProps) {
        ...usageLimitsItems,
        ...projectCloneItems,
        ...freshSessionItems,
@@ -69,10 +69,10 @@ index f4561188df..4c8fd9681b 100644
        branchMismatchBannerItem({
          mismatchKey: activeBranchMismatchKey,
 diff --git a/apps/web/src/components/chat/ThreadDetailsPanel.tsx b/apps/web/src/components/chat/ThreadDetailsPanel.tsx
-index 5c648016ff..ddf3b55d67 100644
+index 4942080dbb..79bc1f132d 100644
 --- a/apps/web/src/components/chat/ThreadDetailsPanel.tsx
 +++ b/apps/web/src/components/chat/ThreadDetailsPanel.tsx
-@@ -20,6 +20,7 @@ import { memo, useState, type ComponentProps } from "react";
+@@ -23,6 +23,7 @@ import { memo, useState, type ComponentProps } from "react";
  import { ThreadDetailsCard } from "./ThreadDetailsCard";
  import { OpenInPicker } from "./OpenInPicker";
  import { ThreadDetailsSection } from "./ThreadDetailsSection";
@@ -80,7 +80,7 @@ index 5c648016ff..ddf3b55d67 100644
  import { ThreadAutomationsPanel } from "./ThreadAutomationsPanel";
  import { ThreadRelationshipsPanel } from "./ThreadRelationshipsControl";
  import { ThreadServersPanel } from "./ThreadServersPanel";
-@@ -93,6 +94,11 @@ export function ThreadDetailsPanel(props: ThreadDetailsPanelProps) {
+@@ -100,6 +101,11 @@ export function ThreadDetailsPanel(props: ThreadDetailsPanelProps) {
      props.environmentId,
      props.activeProjectScripts && visible.scripts ? props.gitCwd : null,
    );
@@ -90,17 +90,17 @@ index 5c648016ff..ddf3b55d67 100644
 +    props.isServerThread ? props.threadId : null,
 +  );
    const activeThreadRef = { environmentId: props.environmentId, threadId: props.threadId };
-   const branchToolbarProps = {
-     showGitControls: props.isGitRepo,
-@@ -153,6 +159,7 @@ export function ThreadDetailsPanel(props: ThreadDetailsPanelProps) {
+   const project = useProject(scopeProjectRef(props.environmentId, props.projectId));
+   const serverConfig = useServerConfigs().get(props.environmentId);
+@@ -169,6 +175,7 @@ export function ThreadDetailsPanel(props: ThreadDetailsPanelProps) {
            environment: density === "full" && visible.environment,
            openIn: density !== "essential" && visible.openIn && props.showOpenInPicker,
            scripts: visible.scripts && props.activeProjectScripts !== undefined,
 +          direnv: density !== "essential" && direnvStatus.indicator !== null,
-           branch: props.gitCwd !== null && props.isGitRepo && visible.branch,
-           git:
-             props.gitCwd !== null &&
-@@ -162,7 +169,7 @@ export function ThreadDetailsPanel(props: ThreadDetailsPanelProps) {
+           branch: offersGit && props.isGitRepo && visible.branch,
+           // Without a branch selector, linked pull requests still need somewhere to show.
+           pullRequests: !(offersGit && props.isGitRepo) && visible.branch,
+@@ -180,7 +187,7 @@ export function ThreadDetailsPanel(props: ThreadDetailsPanelProps) {
          return (
            <>
              <div className="group/details-items">
@@ -109,7 +109,7 @@ index 5c648016ff..ddf3b55d67 100644
                  <ThreadDetailsSection
                    headingId="thread-details-workspace-heading"
                    title="Workspace"
-@@ -195,6 +202,8 @@ export function ThreadDetailsPanel(props: ThreadDetailsPanelProps) {
+@@ -213,6 +220,8 @@ export function ThreadDetailsPanel(props: ThreadDetailsPanelProps) {
                        />
                      ) : null}
  
@@ -416,12 +416,12 @@ index a771e92cec..ba86b10fb5 100644
          <BranchNamingSettings />
        </SettingsSection>
 diff --git a/apps/web/src/components/settings/settingsSearch.ts b/apps/web/src/components/settings/settingsSearch.ts
-index 70810e597b..350c73af2f 100644
+index ab5f03a3a2..6298461d86 100644
 --- a/apps/web/src/components/settings/settingsSearch.ts
 +++ b/apps/web/src/components/settings/settingsSearch.ts
-@@ -757,13 +757,6 @@ export const SETTINGS_SEARCH_ITEMS = [
-       "resume running active interrupted work restart reboot machine crash desktop update automatically",
-     ],
+@@ -790,13 +790,6 @@ export const SETTINGS_SEARCH_ITEMS = [
+     scope: "environment-defaults",
+     searchTerms: ["caffeinate sleep prevent stay awake power laptop lid inhibit"],
    },
 -  {
 -    id: "direnv-environment",
@@ -433,7 +433,7 @@ index 70810e597b..350c73af2f 100644
    {
      id: "background-activity",
      title: "Background activity",
-@@ -1204,6 +1197,20 @@ export const SETTINGS_SEARCH_ITEMS = [
+@@ -1242,6 +1235,20 @@ export const SETTINGS_SEARCH_ITEMS = [
      to: "/settings/projects",
      searchTerms: ["commands scripts setup run dev server checkout worktree t3.json import"],
    },

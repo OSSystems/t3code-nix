@@ -1,7 +1,7 @@
-From ec918042978f1de4426563411cdd264477832da1 Mon Sep 17 00:00:00 2001
+From 9f17c6cbdc85a349a18da5915bb9819fce841c51 Mon Sep 17 00:00:00 2001
 From: Otavio Salvador <otavio@ossystems.com.br>
 Date: Sun, 15 Nov 2026 03:01:10 -0300
-Subject: [PATCH 12/16] feat(server): Git hooks start with the project's direnv
+Subject: [PATCH 12/13] feat(server): Git hooks start with the project's direnv
  environment
 
 Commits and pushes from T3 Code ran Git with the server's own environment, so hooks that call
@@ -12,23 +12,23 @@ Commit and push now get the same approved direnv environment as the agent, resol
 thread, the project, or the workspace root, and publishing a repository pushes with it too. An
 unapproved or failing .envrc runs Git without it, as before.
 ---
- apps/server/src/git/GitManager.test.ts        | 49 +++++++++++++++++++
+ apps/server/src/git/GitManager.test.ts        | 50 +++++++++++++++++++
  apps/server/src/git/GitManager.ts             | 17 ++++++-
  .../ProviderSessionManager.test.ts            |  1 +
  .../project/ProjectEnvironmentService.test.ts | 28 +++++++++++
- .../src/project/ProjectEnvironmentService.ts  | 44 ++++++++++++++++-
+ .../src/project/ProjectEnvironmentService.ts  | 44 +++++++++++++++-
  apps/server/src/server.ts                     | 18 ++++---
  .../SourceControlRepositoryService.ts         | 10 +++-
  apps/server/src/vcs/GitVcsDriver.ts           |  8 ++-
- apps/server/src/vcs/GitVcsDriverCore.ts       | 13 +++--
+ apps/server/src/vcs/GitVcsDriverCore.ts       | 20 +++++---
  docs/user/project-settings.md                 |  5 +-
- 10 files changed, 175 insertions(+), 18 deletions(-)
+ 10 files changed, 181 insertions(+), 20 deletions(-)
 
 diff --git a/apps/server/src/git/GitManager.test.ts b/apps/server/src/git/GitManager.test.ts
-index 1eebcdeb4f..d601485c64 100644
+index 2db95349f1..65d3f543d8 100644
 --- a/apps/server/src/git/GitManager.test.ts
 +++ b/apps/server/src/git/GitManager.test.ts
-@@ -60,6 +60,7 @@ import * as SourceControlProviderRegistry from "../sourceControl/SourceControlPr
+@@ -64,6 +64,7 @@ import * as SourceControlProviderRegistry from "../sourceControl/SourceControlPr
  import * as ServerConfig from "../config.ts";
  import * as ProjectionStore from "../orchestration-v2/ProjectionStore.ts";
  import * as ProjectStore from "../orchestration-v2/ProjectStore.ts";
@@ -36,7 +36,7 @@ index 1eebcdeb4f..d601485c64 100644
  import * as SqlitePersistence from "../persistence/Sqlite.ts";
  import * as ProjectSetupScriptRunner from "../project/ProjectSetupScriptRunner.ts";
  import * as ProviderRegistry from "../provider/ProviderRegistry.ts";
-@@ -602,6 +603,7 @@ function makeManager(input?: {
+@@ -632,6 +633,7 @@ function makeManager(input?: {
    textGeneration?: Partial<FakeGitTextGeneration>;
    serverSettings?: Parameters<typeof ServerSettings.layerTest>[0];
    setupScriptRunner?: ProjectSetupScriptRunner.ProjectSetupScriptRunner["Service"];
@@ -44,7 +44,7 @@ index 1eebcdeb4f..d601485c64 100644
    gitConfigReads?: string[];
    gitCommands?: string[];
    gitSpawnGate?: {
-@@ -716,6 +718,11 @@ function makeManager(input?: {
+@@ -746,6 +748,11 @@ function makeManager(input?: {
        },
      ),
      layerServerSettings,
@@ -56,7 +56,7 @@ index 1eebcdeb4f..d601485c64 100644
    ).pipe(
      Layer.provideMerge(layerSourceControlRegistry),
      Layer.provideMerge(layerVcsDriver),
-@@ -3453,6 +3460,48 @@ it.layer(layerGitManagerTest)("GitManager", (it) => {
+@@ -3764,6 +3771,49 @@ it.layer(layerGitManagerTest)("GitManager", (it) => {
      }),
    );
  
@@ -69,6 +69,7 @@ index 1eebcdeb4f..d601485c64 100644
 +      yield* runGit(repoDir, ["push", "-u", "origin", "HEAD:main"]);
 +      yield* runGit(repoDir, ["checkout", "-b", "feature/direnv-hooks", "--track", "origin/main"]);
 +      const hooksDir = (yield* runGit(repoDir, ["rev-parse", "--git-path", "hooks"])).stdout.trim();
++      NodeFS.mkdirSync(NodePath.resolve(repoDir, hooksDir), { recursive: true });
 +      for (const hook of ["pre-commit", "pre-push"]) {
 +        NodeFS.writeFileSync(
 +          NodePath.resolve(repoDir, hooksDir, hook),
@@ -106,10 +107,10 @@ index 1eebcdeb4f..d601485c64 100644
      Effect.gen(function* () {
        const repoDir = yield* makeTempDir("t3code-git-manager-");
 diff --git a/apps/server/src/git/GitManager.ts b/apps/server/src/git/GitManager.ts
-index c8f107ee70..a28eeb2c1c 100644
+index 92d693a173..3cadbd9a50 100644
 --- a/apps/server/src/git/GitManager.ts
 +++ b/apps/server/src/git/GitManager.ts
-@@ -79,6 +79,7 @@ import {
+@@ -80,6 +80,7 @@ import {
  } from "../textGeneration/TextGenerationPresets.ts";
  import * as ProjectionStore from "../orchestration-v2/ProjectionStore.ts";
  import * as ProjectStore from "../orchestration-v2/ProjectStore.ts";
@@ -117,7 +118,7 @@ index c8f107ee70..a28eeb2c1c 100644
  import * as ProjectSetupScriptRunner from "../project/ProjectSetupScriptRunner.ts";
  import * as ProviderRegistry from "../provider/ProviderRegistry.ts";
  import { extractBranchNameFromRemoteRef } from "./remoteRefs.ts";
-@@ -677,6 +678,9 @@ export const make = Effect.gen(function* () {
+@@ -749,6 +750,9 @@ export const make = Effect.gen(function* () {
    const serverSettingsService = yield* ServerSettings.ServerSettingsService;
    const threads = yield* ProjectionStore.ProjectionStoreV2;
    const projects = yield* ProjectStore.ProjectStoreV2;
@@ -127,7 +128,7 @@ index c8f107ee70..a28eeb2c1c 100644
    const projectSettingsFor = Effect.fnUntraced(function* (input: {
      readonly cwd: string;
      readonly threadId?: ThreadId | undefined;
-@@ -744,8 +748,9 @@ export const make = Effect.gen(function* () {
+@@ -816,8 +820,9 @@ export const make = Effect.gen(function* () {
    const pushCurrentBranch = Effect.fn("GitManager.pushCurrentBranch")(function* (
      cwd: string,
      branch: string | null,
@@ -138,7 +139,7 @@ index c8f107ee70..a28eeb2c1c 100644
      if (result.status === "pushed" && result.branch) {
        yield* shareBranchBase(cwd, result.branch);
      }
-@@ -2181,6 +2186,7 @@ export const make = Effect.gen(function* () {
+@@ -2305,6 +2310,7 @@ export const make = Effect.gen(function* () {
      filePaths?: readonly string[],
      progressReporter?: GitActionProgressReporter,
      actionId?: string,
@@ -146,7 +147,7 @@ index c8f107ee70..a28eeb2c1c 100644
    ) {
      const emit = (event: GitActionProgressPayload) =>
        progressReporter && actionId
-@@ -2268,6 +2274,7 @@ export const make = Effect.gen(function* () {
+@@ -2392,6 +2398,7 @@ export const make = Effect.gen(function* () {
        timeoutMs: COMMIT_TIMEOUT_MS,
        stage: filePaths ? { filePaths } : {},
        ...(commitProgress ? { progress: commitProgress } : {}),
@@ -154,7 +155,7 @@ index c8f107ee70..a28eeb2c1c 100644
      });
      if (currentHookName !== null) {
        yield* emit({
-@@ -3284,6 +3291,11 @@ export const make = Effect.gen(function* () {
+@@ -3608,6 +3615,11 @@ export const make = Effect.gen(function* () {
  
          const currentBranch = branchStep.name ?? initialStatus.branch;
          const commitAction = isCommitAction(input.action) ? input.action : null;
@@ -166,7 +167,7 @@ index c8f107ee70..a28eeb2c1c 100644
          const changeRequestTerms = wantsPr ? yield* changeRequestTermsFor(input.cwd) : null;
          // A stale or missing origin/HEAD hides the default branch from status, so check here
          // before anything is committed or pushed to it.
-@@ -3308,6 +3320,7 @@ export const make = Effect.gen(function* () {
+@@ -3632,6 +3644,7 @@ export const make = Effect.gen(function* () {
                    input.filePaths,
                    options?.progressReporter,
                    progress.actionId,
@@ -174,7 +175,7 @@ index c8f107ee70..a28eeb2c1c 100644
                  ),
                ),
              )
-@@ -3322,7 +3335,7 @@ export const make = Effect.gen(function* () {
+@@ -3646,7 +3659,7 @@ export const make = Effect.gen(function* () {
                })
                .pipe(
                  Effect.tap(() => Ref.set(currentPhase, Option.some("push"))),
@@ -184,10 +185,10 @@ index c8f107ee70..a28eeb2c1c 100644
            : { status: "skipped_not_requested" as const };
  
 diff --git a/apps/server/src/orchestration-v2/ProviderSessionManager.test.ts b/apps/server/src/orchestration-v2/ProviderSessionManager.test.ts
-index 9f1b2d2392..dc5cce6ad2 100644
+index f7ed2fe906..1b72a93a82 100644
 --- a/apps/server/src/orchestration-v2/ProviderSessionManager.test.ts
 +++ b/apps/server/src/orchestration-v2/ProviderSessionManager.test.ts
-@@ -4739,6 +4739,7 @@ function runDirenvScenario(
+@@ -5821,6 +5821,7 @@ function runDirenvScenario(
              approve: () => Effect.die("unused"),
              prepare: () => Effect.succeed(true),
              enabled: () => Effect.succeed(true),
@@ -318,10 +319,10 @@ index 34a5a20008..8791fd3dd5 100644
  
  export const layer = Layer.effect(ProjectEnvironmentService, make());
 diff --git a/apps/server/src/server.ts b/apps/server/src/server.ts
-index e88b3cb8db..8bcf7ccec4 100644
+index c482d4ccf4..c0866b6840 100644
 --- a/apps/server/src/server.ts
 +++ b/apps/server/src/server.ts
-@@ -423,8 +423,17 @@ const layerPullRequestService = PullRequestService.layer.pipe(
+@@ -443,8 +443,17 @@ const layerPullRequestService = PullRequestService.layer.pipe(
    Layer.provide(SourceControlRateLimit.layer),
  );
  
@@ -339,7 +340,7 @@ index e88b3cb8db..8bcf7ccec4 100644
    Layer.provideMerge(RuntimeLayer.layerProjectSetupScriptRunner),
    Layer.provideMerge(WorktreeSetupTracker.layer),
    Layer.provideMerge(GitVcsDriver.layer),
-@@ -443,6 +452,7 @@ const layerGitWorkflow = GitWorkflowService.layer.pipe(
+@@ -463,6 +472,7 @@ const layerGitWorkflow = GitWorkflowService.layer.pipe(
  );
  
  const layerSourceControlRepositoryService = SourceControlRepositoryService.layer.pipe(
@@ -347,7 +348,7 @@ index e88b3cb8db..8bcf7ccec4 100644
    Layer.provideMerge(GitVcsDriver.layer),
    Layer.provideMerge(layerSourceControlProviderRegistry),
  );
-@@ -567,13 +577,7 @@ const layerScheduledTaskWebhookOrigin = Layer.effect(
+@@ -599,13 +609,7 @@ const layerScheduledTaskWebhookOrigin = Layer.effect(
  );
  
  const layerOrchestrationV2Runtime = RuntimeLayer.layerProduction.pipe(
@@ -359,14 +360,14 @@ index e88b3cb8db..8bcf7ccec4 100644
 -  ),
 -  Layer.provideMerge(DirenvEnvironment.layer.pipe(Layer.provide(ProcessRunner.layer))),
 +  Layer.provideMerge(layerProjectEnvironment),
+   Layer.provide(UsageLimitSources.layerResetFallback),
    Layer.provide(layerScheduledTaskWebhookOrigin),
    Layer.provide(ProviderUsageAnalytics.layer),
-   Layer.provide(layerCheckpointStore),
 diff --git a/apps/server/src/sourceControl/SourceControlRepositoryService.ts b/apps/server/src/sourceControl/SourceControlRepositoryService.ts
-index 07c7b28d82..05feab01f0 100644
+index b4b2dc0e92..4083f4d00c 100644
 --- a/apps/server/src/sourceControl/SourceControlRepositoryService.ts
 +++ b/apps/server/src/sourceControl/SourceControlRepositoryService.ts
-@@ -2,6 +2,7 @@ import * as Context from "effect/Context";
+@@ -3,6 +3,7 @@ import * as Duration from "effect/Duration";
  import * as Effect from "effect/Effect";
  import * as FileSystem from "effect/FileSystem";
  import * as Layer from "effect/Layer";
@@ -374,7 +375,7 @@ index 07c7b28d82..05feab01f0 100644
  import * as Path from "effect/Path";
  import * as Schedule from "effect/Schedule";
  import * as Schema from "effect/Schema";
-@@ -30,6 +31,7 @@ import {
+@@ -31,6 +32,7 @@ import {
    type GitCloneProgressLine,
  } from "../project/gitCloneProgress.ts";
  import * as GitVcsDriver from "../vcs/GitVcsDriver.ts";
@@ -382,7 +383,7 @@ index 07c7b28d82..05feab01f0 100644
  import * as SourceControlProvider from "@t3tools/source-control-core/server/SourceControlProvider";
  import * as SourceControlProviderRegistry from "./SourceControlProviderRegistry.ts";
  import * as HostProcess from "@t3tools/shared/HostProcess";
-@@ -199,6 +201,9 @@ export const make = Effect.gen(function* () {
+@@ -200,6 +202,9 @@ export const make = Effect.gen(function* () {
    const config = yield* ServerConfig.ServerConfig;
    const fileSystem = yield* FileSystem.FileSystem;
    const git = yield* GitVcsDriver.GitVcsDriver;
@@ -392,7 +393,7 @@ index 07c7b28d82..05feab01f0 100644
    const path = yield* Path.Path;
    const providers = yield* SourceControlProviderRegistry.SourceControlProviderRegistry;
  
-@@ -502,8 +507,11 @@ export const make = Effect.gen(function* () {
+@@ -523,8 +528,11 @@ export const make = Effect.gen(function* () {
          };
        }
  
@@ -406,10 +407,10 @@ index 07c7b28d82..05feab01f0 100644
            Effect.mapError(
              (cause) =>
 diff --git a/apps/server/src/vcs/GitVcsDriver.ts b/apps/server/src/vcs/GitVcsDriver.ts
-index ff129690b7..c96aaff9ec 100644
+index d0da1b3d09..b69a5e32f9 100644
 --- a/apps/server/src/vcs/GitVcsDriver.ts
 +++ b/apps/server/src/vcs/GitVcsDriver.ts
-@@ -166,6 +166,8 @@ export interface GitCommitOptions {
+@@ -173,6 +173,8 @@ export interface GitCommitOptions {
    readonly timeoutMs?: number;
    readonly progress?: GitCommitProgress;
    readonly stage?: { readonly filePaths?: readonly string[] };
@@ -418,7 +419,7 @@ index ff129690b7..c96aaff9ec 100644
  }
  
  export interface GitDeleteLocalBranchInput {
-@@ -342,7 +344,11 @@ export class GitVcsDriver extends Context.Service<
+@@ -355,7 +357,11 @@ export class GitVcsDriver extends Context.Service<
      readonly pushCurrentBranch: (
        cwd: string,
        fallbackBranch: string | null,
@@ -432,18 +433,18 @@ index ff129690b7..c96aaff9ec 100644
      /** Where `pushCurrentBranch` would push the checked-out branch; null with no remote or when Git picks. */
      readonly resolvePushTarget: (
 diff --git a/apps/server/src/vcs/GitVcsDriverCore.ts b/apps/server/src/vcs/GitVcsDriverCore.ts
-index 4dabf3b493..cec77d1c47 100644
+index 89bb1fa039..84a16ca4cf 100644
 --- a/apps/server/src/vcs/GitVcsDriverCore.ts
 +++ b/apps/server/src/vcs/GitVcsDriverCore.ts
-@@ -2635,6 +2635,7 @@ export const makeGitVcsDriverCore = Effect.fn("makeGitVcsDriverCore")(function*
-     yield* executeGit("GitVcsDriver.commit.commit", cwd, args, {
+@@ -3083,6 +3083,7 @@ export const makeGitVcsDriverCore = Effect.fn("makeGitVcsDriverCore")(function*
        maxOutputBytes: REVIEW_METADATA_MAX_OUTPUT_BYTES,
+       ...onlyPathspecStdin,
        ...(options?.timeoutMs !== undefined ? { timeoutMs: options.timeoutMs } : {}),
 +      ...(options?.env !== undefined ? { env: options.env } : {}),
        ...(progress ? { progress } : {}),
      }).pipe(Effect.asVoid);
-     const commitSha = yield* runGitStdout("GitVcsDriver.commit.revParseHead", cwd, [
-@@ -2734,6 +2735,10 @@ export const makeGitVcsDriverCore = Effect.fn("makeGitVcsDriverCore")(function*
+     if (partialCommitPaths) {
+@@ -3250,6 +3251,10 @@ export const makeGitVcsDriverCore = Effect.fn("makeGitVcsDriverCore")(function*
        });
      }
  
@@ -454,7 +455,7 @@ index 4dabf3b493..cec77d1c47 100644
      const requestedRemoteName = options?.remoteName?.trim() || null;
      if (requestedRemoteName) {
        const publishBranch = yield* resolvePublishBranchName(cwd, branch);
-@@ -2741,7 +2746,7 @@ export const makeGitVcsDriverCore = Effect.fn("makeGitVcsDriverCore")(function*
+@@ -3257,7 +3262,7 @@ export const makeGitVcsDriverCore = Effect.fn("makeGitVcsDriverCore")(function*
          "GitVcsDriver.pushCurrentBranch.pushWithRequestedRemote",
          cwd,
          ["push", "--", requestedRemoteName, `HEAD:refs/heads/${publishBranch}`],
@@ -463,7 +464,7 @@ index 4dabf3b493..cec77d1c47 100644
        );
        return {
          status: "pushed" as const,
-@@ -2831,7 +2836,7 @@ export const makeGitVcsDriverCore = Effect.fn("makeGitVcsDriverCore")(function*
+@@ -3370,7 +3375,7 @@ export const makeGitVcsDriverCore = Effect.fn("makeGitVcsDriverCore")(function*
            : "GitVcsDriver.pushCurrentBranch.pushWithUpstream",
          cwd,
          ["push", "--", remoteName, `HEAD:refs/heads/${publishBranch}`],
@@ -472,7 +473,7 @@ index 4dabf3b493..cec77d1c47 100644
        );
        return {
          status: "pushed" as const,
-@@ -2846,7 +2851,7 @@ export const makeGitVcsDriverCore = Effect.fn("makeGitVcsDriverCore")(function*
+@@ -3385,7 +3390,7 @@ export const makeGitVcsDriverCore = Effect.fn("makeGitVcsDriverCore")(function*
          "GitVcsDriver.pushCurrentBranch.pushUpstream",
          cwd,
          ["push", "--", destination.remoteName, `HEAD:refs/heads/${destination.branchName}`],
@@ -481,20 +482,27 @@ index 4dabf3b493..cec77d1c47 100644
        );
        return {
          status: "pushed" as const,
-@@ -2856,7 +2861,7 @@ export const makeGitVcsDriverCore = Effect.fn("makeGitVcsDriverCore")(function*
+@@ -3400,9 +3405,12 @@ export const makeGitVcsDriverCore = Effect.fn("makeGitVcsDriverCore")(function*
        };
      }
  
--    yield* runGit("GitVcsDriver.pushCurrentBranch.push", cwd, ["push"], { timeoutMs: null });
-+    yield* runGit("GitVcsDriver.pushCurrentBranch.push", cwd, ["push"], pushOptions);
+-    yield* executeGitWithStableDiagnostics("GitVcsDriver.pushCurrentBranch.push", cwd, ["push"], {
+-      timeoutMs: null,
+-    });
++    yield* executeGitWithStableDiagnostics(
++      "GitVcsDriver.pushCurrentBranch.push",
++      cwd,
++      ["push"],
++      pushOptions,
++    );
      return {
        status: "pushed" as const,
        branch,
 diff --git a/docs/user/project-settings.md b/docs/user/project-settings.md
-index a472119cef..f1ab5f095e 100644
+index 796e39cced..f1e3c0eca6 100644
 --- a/docs/user/project-settings.md
 +++ b/docs/user/project-settings.md
-@@ -216,8 +216,9 @@ repositories whose checkout settings changed.
+@@ -219,8 +219,9 @@ repositories whose checkout settings changed.
  
  ## Project environments with direnv
  

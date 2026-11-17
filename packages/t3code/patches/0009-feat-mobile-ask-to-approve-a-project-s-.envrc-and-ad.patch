@@ -1,7 +1,7 @@
-From ec1fa27c54a25324e9b48f03bdd52cc9d169a02e Mon Sep 17 00:00:00 2001
+From b018317fffeaea939a593ccc43a91bc30a9ef69b Mon Sep 17 00:00:00 2001
 From: Otavio Salvador <otavio@ossystems.com.br>
 Date: Fri, 30 Oct 2026 08:00:08 -0300
-Subject: [PATCH 09/16] feat(mobile): ask to approve a project's .envrc and add
+Subject: [PATCH 09/13] feat(mobile): ask to approve a project's .envrc and add
  direnv settings
 
 The new task and thread screens show the same approval banner as the web, and the worktrees
@@ -15,10 +15,10 @@ settings page gains the project's direnv and trust-changes settings.
  create mode 100644 apps/mobile/src/features/threads/ProjectEnvironmentBanner.tsx
 
 diff --git a/apps/mobile/src/features/settings/SettingsServerControlsRouteScreen.tsx b/apps/mobile/src/features/settings/SettingsServerControlsRouteScreen.tsx
-index 793e3ae754..fce81a732d 100644
+index 5026a90e13..767c072107 100644
 --- a/apps/mobile/src/features/settings/SettingsServerControlsRouteScreen.tsx
 +++ b/apps/mobile/src/features/settings/SettingsServerControlsRouteScreen.tsx
-@@ -69,6 +69,8 @@ const PAGE_PROJECT_KEYS: Record<SettingsPage, readonly ProjectScopedServerSettin
+@@ -71,6 +71,8 @@ const PAGE_PROJECT_KEYS: Record<SettingsPage, readonly ProjectScopedServerSettin
      "branchNamingMode",
      "branchNamePrefix",
      "branchNameInstructions",
@@ -27,7 +27,7 @@ index 793e3ae754..fce81a732d 100644
    ],
    maintenance: ["continueThreadsAfterServerUpdate"],
  };
-@@ -486,6 +488,24 @@ function ServerSettingsDetail(props: { readonly page: SettingsPage }) {
+@@ -513,6 +515,24 @@ function ServerSettingsDetail(props: { readonly page: SettingsPage }) {
                      />
                    ))}
                  </SettingsSection>
@@ -53,7 +53,7 @@ index 793e3ae754..fce81a732d 100644
                    key={targetsKey}
                    mode={uniform("branchNamingMode")}
 diff --git a/apps/mobile/src/features/threads/NewTaskDraftScreen.tsx b/apps/mobile/src/features/threads/NewTaskDraftScreen.tsx
-index 2bc2670732..fcf65427a7 100644
+index 201204a8a5..e66785960a 100644
 --- a/apps/mobile/src/features/threads/NewTaskDraftScreen.tsx
 +++ b/apps/mobile/src/features/threads/NewTaskDraftScreen.tsx
 @@ -68,6 +68,7 @@ import { projectEnvironment } from "../../state/projects";
@@ -64,7 +64,7 @@ index 2bc2670732..fcf65427a7 100644
  import {
    describeUnavailableModelSelection,
    isModelSelectionUnavailable,
-@@ -898,6 +899,14 @@ export function NewTaskDraftScreen(props: {
+@@ -902,6 +903,14 @@ export function NewTaskDraftScreen(props: {
  
    const draftControls = (viewportHeight: number) => (
      <View className="pb-1">
@@ -239,10 +239,10 @@ index 0000000000..e29bb7c5aa
 +  );
 +}
 diff --git a/apps/mobile/src/features/threads/ThreadDetailScreen.tsx b/apps/mobile/src/features/threads/ThreadDetailScreen.tsx
-index 72361dd242..e27368e00b 100644
+index 425a5cecac..0aaaa5c9b0 100644
 --- a/apps/mobile/src/features/threads/ThreadDetailScreen.tsx
 +++ b/apps/mobile/src/features/threads/ThreadDetailScreen.tsx
-@@ -176,6 +176,7 @@ import { PendingApprovalCard } from "./PendingApprovalCard";
+@@ -181,6 +181,7 @@ import { PendingApprovalCard } from "./PendingApprovalCard";
  import { ComposerErrorNotice } from "./ComposerErrorNotice";
  import { ManagedRuntimeModeNotice } from "./ManagedRuntimeModeNotice";
  import { FreshSessionNotice } from "./FreshSessionNotice";
@@ -250,7 +250,7 @@ index 72361dd242..e27368e00b 100644
  import { ComposerFeedback } from "./ComposerFeedback";
  import { ComposerUsageLimits } from "./ComposerUsageLimits";
  import { PendingUserInputCard } from "./PendingUserInputCard";
-@@ -1681,6 +1682,12 @@ function ThreadDetailBody(
+@@ -1694,6 +1695,12 @@ function ThreadDetailBody(
                      {freshSessionAvailable ? (
                        <FreshSessionNotice threadKey={selectedThreadKey} />
                      ) : null}
