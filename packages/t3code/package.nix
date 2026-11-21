@@ -66,6 +66,12 @@ let
         substituteInPlace apps/server/src/cli/browser.ts \
           --replace-fail 'const browser = yield* installedBrowser(baseDirPath);' \
                          'const browser = Option.some("${lib.getExe browser}");'
+
+        # Backport of https://github.com/NixOS/nixpkgs/pull/575673: shared Electron runs the app
+        # unpackaged, so the backend would otherwise start in the read-only store.
+        substituteInPlace apps/desktop/src/app/DesktopEnvironment.ts \
+          --replace-fail 'backendCwd: input.isPackaged ? homeDirectory : appRoot,' \
+                         'backendCwd: homeDirectory,'
       '';
 
       # Connect is disabled unless the public production identifiers are embedded at build time.
