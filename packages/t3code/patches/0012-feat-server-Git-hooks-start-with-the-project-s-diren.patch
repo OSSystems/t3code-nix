@@ -1,4 +1,4 @@
-From 9f17c6cbdc85a349a18da5915bb9819fce841c51 Mon Sep 17 00:00:00 2001
+From 5b3c36ba4900ff3f2c55a1dc45d024dbbb9464f9 Mon Sep 17 00:00:00 2001
 From: Otavio Salvador <otavio@ossystems.com.br>
 Date: Sun, 15 Nov 2026 03:01:10 -0300
 Subject: [PATCH 12/13] feat(server): Git hooks start with the project's direnv
@@ -25,7 +25,7 @@ unapproved or failing .envrc runs Git without it, as before.
  10 files changed, 181 insertions(+), 20 deletions(-)
 
 diff --git a/apps/server/src/git/GitManager.test.ts b/apps/server/src/git/GitManager.test.ts
-index 2db95349f1..65d3f543d8 100644
+index 73da4ec2a6..2a996e6d3f 100644
 --- a/apps/server/src/git/GitManager.test.ts
 +++ b/apps/server/src/git/GitManager.test.ts
 @@ -64,6 +64,7 @@ import * as SourceControlProviderRegistry from "../sourceControl/SourceControlPr
@@ -33,10 +33,10 @@ index 2db95349f1..65d3f543d8 100644
  import * as ProjectionStore from "../orchestration-v2/ProjectionStore.ts";
  import * as ProjectStore from "../orchestration-v2/ProjectStore.ts";
 +import * as ProjectEnvironmentService from "../project/ProjectEnvironmentService.ts";
+ import * as PullRequestService from "../pullRequest/PullRequestService.ts";
  import * as SqlitePersistence from "../persistence/Sqlite.ts";
  import * as ProjectSetupScriptRunner from "../project/ProjectSetupScriptRunner.ts";
- import * as ProviderRegistry from "../provider/ProviderRegistry.ts";
-@@ -632,6 +633,7 @@ function makeManager(input?: {
+@@ -634,6 +635,7 @@ function makeManager(input?: {
    textGeneration?: Partial<FakeGitTextGeneration>;
    serverSettings?: Parameters<typeof ServerSettings.layerTest>[0];
    setupScriptRunner?: ProjectSetupScriptRunner.ProjectSetupScriptRunner["Service"];
@@ -44,7 +44,7 @@ index 2db95349f1..65d3f543d8 100644
    gitConfigReads?: string[];
    gitCommands?: string[];
    gitSpawnGate?: {
-@@ -746,6 +748,11 @@ function makeManager(input?: {
+@@ -749,6 +751,11 @@ function makeManager(input?: {
        },
      ),
      layerServerSettings,
@@ -56,7 +56,7 @@ index 2db95349f1..65d3f543d8 100644
    ).pipe(
      Layer.provideMerge(layerSourceControlRegistry),
      Layer.provideMerge(layerVcsDriver),
-@@ -3764,6 +3771,49 @@ it.layer(layerGitManagerTest)("GitManager", (it) => {
+@@ -3767,6 +3774,49 @@ it.layer(layerGitManagerTest)("GitManager", (it) => {
      }),
    );
  
@@ -107,7 +107,7 @@ index 2db95349f1..65d3f543d8 100644
      Effect.gen(function* () {
        const repoDir = yield* makeTempDir("t3code-git-manager-");
 diff --git a/apps/server/src/git/GitManager.ts b/apps/server/src/git/GitManager.ts
-index 92d693a173..3cadbd9a50 100644
+index 77acae07de..d840eff3dc 100644
 --- a/apps/server/src/git/GitManager.ts
 +++ b/apps/server/src/git/GitManager.ts
 @@ -80,6 +80,7 @@ import {
@@ -116,10 +116,10 @@ index 92d693a173..3cadbd9a50 100644
  import * as ProjectStore from "../orchestration-v2/ProjectStore.ts";
 +import * as ProjectEnvironmentService from "../project/ProjectEnvironmentService.ts";
  import * as ProjectSetupScriptRunner from "../project/ProjectSetupScriptRunner.ts";
- import * as ProviderRegistry from "../provider/ProviderRegistry.ts";
- import { extractBranchNameFromRemoteRef } from "./remoteRefs.ts";
-@@ -749,6 +750,9 @@ export const make = Effect.gen(function* () {
-   const serverSettingsService = yield* ServerSettings.ServerSettingsService;
+ import * as PullRequestService from "../pullRequest/PullRequestService.ts";
+ import { createdPullRequestKey } from "./linkCreatedPullRequest.ts";
+@@ -771,6 +772,9 @@ export const make = Effect.gen(function* () {
+   const pullRequests = yield* PullRequestService.PullRequestService;
    const threads = yield* ProjectionStore.ProjectionStoreV2;
    const projects = yield* ProjectStore.ProjectStoreV2;
 +  const projectEnvironment = yield* Effect.serviceOption(
@@ -128,7 +128,7 @@ index 92d693a173..3cadbd9a50 100644
    const projectSettingsFor = Effect.fnUntraced(function* (input: {
      readonly cwd: string;
      readonly threadId?: ThreadId | undefined;
-@@ -816,8 +820,9 @@ export const make = Effect.gen(function* () {
+@@ -838,8 +842,9 @@ export const make = Effect.gen(function* () {
    const pushCurrentBranch = Effect.fn("GitManager.pushCurrentBranch")(function* (
      cwd: string,
      branch: string | null,
@@ -139,7 +139,7 @@ index 92d693a173..3cadbd9a50 100644
      if (result.status === "pushed" && result.branch) {
        yield* shareBranchBase(cwd, result.branch);
      }
-@@ -2305,6 +2310,7 @@ export const make = Effect.gen(function* () {
+@@ -2327,6 +2332,7 @@ export const make = Effect.gen(function* () {
      filePaths?: readonly string[],
      progressReporter?: GitActionProgressReporter,
      actionId?: string,
@@ -147,7 +147,7 @@ index 92d693a173..3cadbd9a50 100644
    ) {
      const emit = (event: GitActionProgressPayload) =>
        progressReporter && actionId
-@@ -2392,6 +2398,7 @@ export const make = Effect.gen(function* () {
+@@ -2414,6 +2420,7 @@ export const make = Effect.gen(function* () {
        timeoutMs: COMMIT_TIMEOUT_MS,
        stage: filePaths ? { filePaths } : {},
        ...(commitProgress ? { progress: commitProgress } : {}),
@@ -155,7 +155,7 @@ index 92d693a173..3cadbd9a50 100644
      });
      if (currentHookName !== null) {
        yield* emit({
-@@ -3608,6 +3615,11 @@ export const make = Effect.gen(function* () {
+@@ -3721,6 +3728,11 @@ export const make = Effect.gen(function* () {
  
          const currentBranch = branchStep.name ?? initialStatus.branch;
          const commitAction = isCommitAction(input.action) ? input.action : null;
@@ -167,7 +167,7 @@ index 92d693a173..3cadbd9a50 100644
          const changeRequestTerms = wantsPr ? yield* changeRequestTermsFor(input.cwd) : null;
          // A stale or missing origin/HEAD hides the default branch from status, so check here
          // before anything is committed or pushed to it.
-@@ -3632,6 +3644,7 @@ export const make = Effect.gen(function* () {
+@@ -3745,6 +3757,7 @@ export const make = Effect.gen(function* () {
                    input.filePaths,
                    options?.progressReporter,
                    progress.actionId,
@@ -175,7 +175,7 @@ index 92d693a173..3cadbd9a50 100644
                  ),
                ),
              )
-@@ -3646,7 +3659,7 @@ export const make = Effect.gen(function* () {
+@@ -3759,7 +3772,7 @@ export const make = Effect.gen(function* () {
                })
                .pipe(
                  Effect.tap(() => Ref.set(currentPhase, Option.some("push"))),
@@ -185,10 +185,10 @@ index 92d693a173..3cadbd9a50 100644
            : { status: "skipped_not_requested" as const };
  
 diff --git a/apps/server/src/orchestration-v2/ProviderSessionManager.test.ts b/apps/server/src/orchestration-v2/ProviderSessionManager.test.ts
-index f7ed2fe906..1b72a93a82 100644
+index f383376072..664fbec61a 100644
 --- a/apps/server/src/orchestration-v2/ProviderSessionManager.test.ts
 +++ b/apps/server/src/orchestration-v2/ProviderSessionManager.test.ts
-@@ -5821,6 +5821,7 @@ function runDirenvScenario(
+@@ -5868,6 +5868,7 @@ function runDirenvScenario(
              approve: () => Effect.die("unused"),
              prepare: () => Effect.succeed(true),
              enabled: () => Effect.succeed(true),
@@ -319,12 +319,12 @@ index 34a5a20008..8791fd3dd5 100644
  
  export const layer = Layer.effect(ProjectEnvironmentService, make());
 diff --git a/apps/server/src/server.ts b/apps/server/src/server.ts
-index c482d4ccf4..c0866b6840 100644
+index 7a545eb2ac..790d8e51b3 100644
 --- a/apps/server/src/server.ts
 +++ b/apps/server/src/server.ts
-@@ -443,8 +443,17 @@ const layerPullRequestService = PullRequestService.layer.pipe(
-   Layer.provide(SourceControlRateLimit.layer),
- );
+@@ -456,9 +456,18 @@ const layerIssueService = Layer.merge(IssueService.layer, IssueTrackerConnection
+ // One instance serves MCP link calls and refreshes snapshots on thread events.
+ const layerThreadIssueService = ThreadIssueService.layer;
  
 +const layerDirenvEnvironment = DirenvEnvironment.layer.pipe(Layer.provide(ProcessRunner.layer));
 +
@@ -336,11 +336,12 @@ index c482d4ccf4..c0866b6840 100644
 +
  const layerGitManager = GitManager.layer.pipe(
    Layer.provide(Layer.merge(ProjectionStoreV2.layer, ProjectStore.layer)),
+   Layer.provide(layerPullRequestService.pipe(Layer.provide(RuntimeLayer.layerProjectService))),
 +  Layer.provide(layerProjectEnvironment),
    Layer.provideMerge(RuntimeLayer.layerProjectSetupScriptRunner),
    Layer.provideMerge(WorktreeSetupTracker.layer),
    Layer.provideMerge(GitVcsDriver.layer),
-@@ -463,6 +472,7 @@ const layerGitWorkflow = GitWorkflowService.layer.pipe(
+@@ -477,6 +486,7 @@ const layerGitWorkflow = GitWorkflowService.layer.pipe(
  );
  
  const layerSourceControlRepositoryService = SourceControlRepositoryService.layer.pipe(
@@ -348,7 +349,7 @@ index c482d4ccf4..c0866b6840 100644
    Layer.provideMerge(GitVcsDriver.layer),
    Layer.provideMerge(layerSourceControlProviderRegistry),
  );
-@@ -599,13 +609,7 @@ const layerScheduledTaskWebhookOrigin = Layer.effect(
+@@ -614,13 +624,7 @@ const layerScheduledTaskWebhookOrigin = Layer.effect(
  );
  
  const layerOrchestrationV2Runtime = RuntimeLayer.layerProduction.pipe(
@@ -407,7 +408,7 @@ index b4b2dc0e92..4083f4d00c 100644
            Effect.mapError(
              (cause) =>
 diff --git a/apps/server/src/vcs/GitVcsDriver.ts b/apps/server/src/vcs/GitVcsDriver.ts
-index d0da1b3d09..b69a5e32f9 100644
+index 22e19fc03a..1da978a1b2 100644
 --- a/apps/server/src/vcs/GitVcsDriver.ts
 +++ b/apps/server/src/vcs/GitVcsDriver.ts
 @@ -173,6 +173,8 @@ export interface GitCommitOptions {
@@ -433,10 +434,10 @@ index d0da1b3d09..b69a5e32f9 100644
      /** Where `pushCurrentBranch` would push the checked-out branch; null with no remote or when Git picks. */
      readonly resolvePushTarget: (
 diff --git a/apps/server/src/vcs/GitVcsDriverCore.ts b/apps/server/src/vcs/GitVcsDriverCore.ts
-index 89bb1fa039..84a16ca4cf 100644
+index b88ade8863..8fc633e667 100644
 --- a/apps/server/src/vcs/GitVcsDriverCore.ts
 +++ b/apps/server/src/vcs/GitVcsDriverCore.ts
-@@ -3083,6 +3083,7 @@ export const makeGitVcsDriverCore = Effect.fn("makeGitVcsDriverCore")(function*
+@@ -3256,6 +3256,7 @@ export const makeGitVcsDriverCore = Effect.fn("makeGitVcsDriverCore")(function*
        maxOutputBytes: REVIEW_METADATA_MAX_OUTPUT_BYTES,
        ...onlyPathspecStdin,
        ...(options?.timeoutMs !== undefined ? { timeoutMs: options.timeoutMs } : {}),
@@ -444,7 +445,7 @@ index 89bb1fa039..84a16ca4cf 100644
        ...(progress ? { progress } : {}),
      }).pipe(Effect.asVoid);
      if (partialCommitPaths) {
-@@ -3250,6 +3251,10 @@ export const makeGitVcsDriverCore = Effect.fn("makeGitVcsDriverCore")(function*
+@@ -3423,6 +3424,10 @@ export const makeGitVcsDriverCore = Effect.fn("makeGitVcsDriverCore")(function*
        });
      }
  
@@ -455,7 +456,7 @@ index 89bb1fa039..84a16ca4cf 100644
      const requestedRemoteName = options?.remoteName?.trim() || null;
      if (requestedRemoteName) {
        const publishBranch = yield* resolvePublishBranchName(cwd, branch);
-@@ -3257,7 +3262,7 @@ export const makeGitVcsDriverCore = Effect.fn("makeGitVcsDriverCore")(function*
+@@ -3430,7 +3435,7 @@ export const makeGitVcsDriverCore = Effect.fn("makeGitVcsDriverCore")(function*
          "GitVcsDriver.pushCurrentBranch.pushWithRequestedRemote",
          cwd,
          ["push", "--", requestedRemoteName, `HEAD:refs/heads/${publishBranch}`],
@@ -464,7 +465,7 @@ index 89bb1fa039..84a16ca4cf 100644
        );
        return {
          status: "pushed" as const,
-@@ -3370,7 +3375,7 @@ export const makeGitVcsDriverCore = Effect.fn("makeGitVcsDriverCore")(function*
+@@ -3543,7 +3548,7 @@ export const makeGitVcsDriverCore = Effect.fn("makeGitVcsDriverCore")(function*
            : "GitVcsDriver.pushCurrentBranch.pushWithUpstream",
          cwd,
          ["push", "--", remoteName, `HEAD:refs/heads/${publishBranch}`],
@@ -473,7 +474,7 @@ index 89bb1fa039..84a16ca4cf 100644
        );
        return {
          status: "pushed" as const,
-@@ -3385,7 +3390,7 @@ export const makeGitVcsDriverCore = Effect.fn("makeGitVcsDriverCore")(function*
+@@ -3558,7 +3563,7 @@ export const makeGitVcsDriverCore = Effect.fn("makeGitVcsDriverCore")(function*
          "GitVcsDriver.pushCurrentBranch.pushUpstream",
          cwd,
          ["push", "--", destination.remoteName, `HEAD:refs/heads/${destination.branchName}`],
@@ -482,7 +483,7 @@ index 89bb1fa039..84a16ca4cf 100644
        );
        return {
          status: "pushed" as const,
-@@ -3400,9 +3405,12 @@ export const makeGitVcsDriverCore = Effect.fn("makeGitVcsDriverCore")(function*
+@@ -3573,9 +3578,12 @@ export const makeGitVcsDriverCore = Effect.fn("makeGitVcsDriverCore")(function*
        };
      }
  
@@ -499,10 +500,10 @@ index 89bb1fa039..84a16ca4cf 100644
        status: "pushed" as const,
        branch,
 diff --git a/docs/user/project-settings.md b/docs/user/project-settings.md
-index 796e39cced..f1e3c0eca6 100644
+index e8389cdb4b..323b8f84b5 100644
 --- a/docs/user/project-settings.md
 +++ b/docs/user/project-settings.md
-@@ -219,8 +219,9 @@ repositories whose checkout settings changed.
+@@ -228,8 +228,9 @@ repositories whose checkout settings changed.
  
  ## Project environments with direnv
  

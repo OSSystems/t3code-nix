@@ -11,7 +11,7 @@
 }:
 
 let
-  version = "0.1.10";
+  version = "0.1.11";
 
   browser = chromium;
   browserProfileName = "t3-nix-${baseNameOf (toString browser.browser)}";
@@ -20,7 +20,7 @@ let
     owner = "pingdotgg";
     repo = "t3code";
     tag = "v${version}";
-    hash = "sha256-zhScbDGW+bD2T7++YRUPY/y83SGE2080LxcGw3Txrso=";
+    hash = "sha256-oI8gyTWFgtTmVK+0cVQaEcfO8EzxUUOW5s8JFG/z/U8=";
   };
 
   patches = [
@@ -76,7 +76,7 @@ let
           pnpmWorkspaces
           ;
         fetcherVersion = 4;
-        hash = "sha256-9mQ6NLC/+l7p4Cs8TfF9BGgj4N9qnBC4mg4JDvGhKJo=";
+        hash = "sha256-u34YhuSMQj178JiRf/bf+VQYZfBUUH9UtCcJODPzBFQ=";
       };
 
       passthru = (oldAttrs.passthru or { }) // {

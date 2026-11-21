@@ -1,4 +1,4 @@
-From 6c3f0ee922d7992445bfd98cbcc0a4bbecc8bcb8 Mon Sep 17 00:00:00 2001
+From e8537a2ca9dc5f87d2eda7a7688062ec3b4216d9 Mon Sep 17 00:00:00 2001
 From: Otavio Salvador <otavio@ossystems.com.br>
 Date: Fri, 30 Oct 2026 08:00:08 -0300
 Subject: [PATCH 08/13] feat(web): ask to approve a project's .envrc and show
@@ -10,21 +10,31 @@ Settings > Worktrees holds the project's direnv and trust-changes settings.
 ---
  apps/web/src/components/ChatView.tsx          |   9 ++
  .../components/chat/ThreadDetailsPanel.tsx    |  11 +-
- .../components/chat/ThreadDirenvControl.tsx   |  62 +++++++++
- .../chat/useProjectEnvironmentBanner.tsx      | 129 ++++++++++++++++++
- .../settings/ProjectEnvironmentSettings.tsx   |  68 +++++++++
+ .../components/chat/ThreadDirenvControl.tsx   |  68 +++++++++
+ .../chat/useProjectEnvironmentBanner.tsx      | 135 ++++++++++++++++++
+ .../settings/ProjectEnvironmentSettings.tsx   |  75 ++++++++++
  .../components/settings/WorktreesSettings.tsx |   2 +
- .../src/components/settings/settingsSearch.ts |  21 ++-
- 7 files changed, 294 insertions(+), 8 deletions(-)
+ .../src/components/settings/settingsSearch.ts |  23 +--
+ apps/web/src/i18n/translations/de.json        |  22 ++-
+ apps/web/src/i18n/translations/en.json        |  22 ++-
+ apps/web/src/i18n/translations/es.json        |  22 ++-
+ apps/web/src/i18n/translations/fr.json        |  22 ++-
+ apps/web/src/i18n/translations/ja.json        |  22 ++-
+ apps/web/src/i18n/translations/ko.json        |  22 ++-
+ apps/web/src/i18n/translations/pt-BR.json     |  22 ++-
+ apps/web/src/i18n/translations/ru.json        |  22 ++-
+ apps/web/src/i18n/translations/sv.json        |  22 ++-
+ apps/web/src/i18n/translations/zh.json        |  22 ++-
+ 17 files changed, 513 insertions(+), 30 deletions(-)
  create mode 100644 apps/web/src/components/chat/ThreadDirenvControl.tsx
  create mode 100644 apps/web/src/components/chat/useProjectEnvironmentBanner.tsx
  create mode 100644 apps/web/src/components/settings/ProjectEnvironmentSettings.tsx
 
 diff --git a/apps/web/src/components/ChatView.tsx b/apps/web/src/components/ChatView.tsx
-index fbec562059..c62d4a8b8a 100644
+index 128f3b16d1..994550b231 100644
 --- a/apps/web/src/components/ChatView.tsx
 +++ b/apps/web/src/components/ChatView.tsx
-@@ -337,6 +337,7 @@ import { useProactivePanels } from "../hooks/useProactivePanels";
+@@ -344,6 +344,7 @@ import { useProactivePanels } from "../hooks/useProactivePanels";
  import { useIncrementalTimelineEntries } from "../hooks/useIncrementalTimelineEntries";
  import { useRightPanelSurfaceClose } from "../hooks/useRightPanelSurfaceClose";
  import { ComposerBannerStack, type ComposerBannerStackItem } from "./chat/ComposerBannerStack";
@@ -32,7 +42,7 @@ index fbec562059..c62d4a8b8a 100644
  import { modelFallbackBannerItem } from "./chat/ComposerUsageLimits";
  import { ComposerSurface } from "./chat/ComposerSurface";
  import { resolveThreadSyncPhase } from "../threadSync";
-@@ -1144,6 +1145,10 @@ export default function ChatView(props: ChatViewProps) {
+@@ -1169,6 +1170,10 @@ export default function ChatView(props: ChatViewProps) {
    const activeProjectScripts = activeProject ? resolveProjectScripts(settings, activeProject) : [];
    const { projectCloneBannerItem, projectCloneSendBlockReason } =
      useProjectCloneBanner(activeProjectRef);
@@ -43,16 +53,16 @@ index fbec562059..c62d4a8b8a 100644
    const activeProjectDefaultModelSelection =
      !isServerThread && draftFallback
        ? draftFallback.selection
-@@ -2666,6 +2671,8 @@ export default function ChatView(props: ChatViewProps) {
-       freshSessionAvailable && freshSessionArmed && activePendingApproval === null
-         ? [freshSessionBannerItem(() => disarmFreshSession(routeThreadKey))]
+@@ -2710,6 +2715,8 @@ export default function ChatView(props: ChatViewProps) {
+       freshSessionPending && activePendingApproval === null
+         ? [freshSessionBannerItem(() => disarmFreshSession(routeThreadKey), messages)]
          : [];
 +    const projectEnvironmentItems =
 +      projectEnvironmentBannerItem === null ? [] : [projectEnvironmentBannerItem];
      if (!localCheckoutBranchMismatch || !showBranchMismatchBanner || !activeBranchMismatchKey) {
        return [
          ...feedbackBannerItems,
-@@ -2675,6 +2682,7 @@ export default function ChatView(props: ChatViewProps) {
+@@ -2719,6 +2726,7 @@ export default function ChatView(props: ChatViewProps) {
          ...usageLimitsItems,
          ...projectCloneItems,
          ...freshSessionItems,
@@ -60,19 +70,19 @@ index fbec562059..c62d4a8b8a 100644
          ...systemComposerBannerItems,
        ];
      }
-@@ -2686,6 +2694,7 @@ export default function ChatView(props: ChatViewProps) {
+@@ -2730,6 +2738,7 @@ export default function ChatView(props: ChatViewProps) {
        ...usageLimitsItems,
        ...projectCloneItems,
        ...freshSessionItems,
 +      ...projectEnvironmentItems,
        ...systemComposerBannerItems,
-       branchMismatchBannerItem({
-         mismatchKey: activeBranchMismatchKey,
+       branchMismatchBannerItem(
+         {
 diff --git a/apps/web/src/components/chat/ThreadDetailsPanel.tsx b/apps/web/src/components/chat/ThreadDetailsPanel.tsx
-index 4942080dbb..79bc1f132d 100644
+index d91c0156e8..b6e6301965 100644
 --- a/apps/web/src/components/chat/ThreadDetailsPanel.tsx
 +++ b/apps/web/src/components/chat/ThreadDetailsPanel.tsx
-@@ -23,6 +23,7 @@ import { memo, useState, type ComponentProps } from "react";
+@@ -24,6 +24,7 @@ import { useState, type ComponentProps } from "react";
  import { ThreadDetailsCard } from "./ThreadDetailsCard";
  import { OpenInPicker } from "./OpenInPicker";
  import { ThreadDetailsSection } from "./ThreadDetailsSection";
@@ -108,7 +118,7 @@ index 4942080dbb..79bc1f132d 100644
 +              {show.environment || show.openIn || show.scripts || show.direnv ? (
                  <ThreadDetailsSection
                    headingId="thread-details-workspace-heading"
-                   title="Workspace"
+                   title={gt("Workspace")}
 @@ -213,6 +220,8 @@ export function ThreadDetailsPanel(props: ThreadDetailsPanelProps) {
                        />
                      ) : null}
@@ -120,13 +130,14 @@ index 4942080dbb..79bc1f132d 100644
                          environmentId={props.environmentId}
 diff --git a/apps/web/src/components/chat/ThreadDirenvControl.tsx b/apps/web/src/components/chat/ThreadDirenvControl.tsx
 new file mode 100644
-index 0000000000..d8afa19447
+index 0000000000..997d04907d
 --- /dev/null
 +++ b/apps/web/src/components/chat/ThreadDirenvControl.tsx
-@@ -0,0 +1,62 @@
+@@ -0,0 +1,68 @@
 +import type { EnvironmentId, ProjectId, ThreadId } from "@t3tools/contracts";
 +import { projectEnvironmentIndicator } from "@t3tools/client-runtime/state/projectEnvironment";
 +import { useNavigate } from "@tanstack/react-router";
++import { useGT } from "gt-react";
 +import { TerminalSquareIcon } from "lucide-react";
 +
 +import { cn } from "~/lib/utils";
@@ -153,6 +164,7 @@ index 0000000000..d8afa19447
 +export function ThreadDirenvControl(props: {
 +  readonly status: ReturnType<typeof useThreadDirenvStatus>;
 +}) {
++  const gt = useGT();
 +  const navigate = useNavigate();
 +  const { target, query, indicator } = props.status;
 +  if (indicator === null) return null;
@@ -181,23 +193,28 @@ index 0000000000..d8afa19447
 +          indicator === "off" && "text-muted-foreground",
 +        )}
 +      >
-+        {indicator === "on" ? "On" : indicator === "approval" ? "Needs approval" : "Off"}
++        {indicator === "on"
++          ? gt("On", { $context: "direnv environment status" })
++          : indicator === "approval"
++            ? gt("Needs approval")
++            : gt("Off", { $context: "direnv environment status" })}
 +      </span>
 +    </ThreadDetailsControl>
 +  );
 +}
 diff --git a/apps/web/src/components/chat/useProjectEnvironmentBanner.tsx b/apps/web/src/components/chat/useProjectEnvironmentBanner.tsx
 new file mode 100644
-index 0000000000..9b3fb09026
+index 0000000000..3cddc3d2c3
 --- /dev/null
 +++ b/apps/web/src/components/chat/useProjectEnvironmentBanner.tsx
-@@ -0,0 +1,129 @@
+@@ -0,0 +1,135 @@
 +import { useAtomValue } from "@effect/atom-react";
 +import type { ScopedProjectRef, ThreadId } from "@t3tools/contracts";
 +import {
 +  projectEnvironmentReview,
 +  type ProjectEnvironmentTarget,
 +} from "@t3tools/client-runtime/state/projectEnvironment";
++import { T, useGT } from "gt-react";
 +import { TerminalSquareIcon } from "lucide-react";
 +import { useState } from "react";
 +
@@ -219,6 +236,7 @@ index 0000000000..9b3fb09026
 +  projectRef: ScopedProjectRef | null,
 +  threadId: ThreadId | null,
 +): ComposerBannerStackItem | null {
++  const gt = useGT();
 +  const target: ProjectEnvironmentTarget | null =
 +    projectRef === null ? null : { ...projectRef, threadId };
 +  const query = useEnvironmentQuery(target === null ? null : projectEnvironment.statusAtom(target));
@@ -250,7 +268,7 @@ index 0000000000..9b3fb09026
 +    if (result._tag === "Success" && !result.value.approved) {
 +      toastManager.add({
 +        type: "error",
-+        title: "Could not approve the .envrc",
++        title: gt("Could not approve the .envrc"),
 +        description: result.value.error,
 +      });
 +    }
@@ -279,13 +297,17 @@ index 0000000000..9b3fb09026
 +    variant: changed ? "warning" : "info",
 +    icon: <TerminalSquareIcon />,
 +    title: changed
-+      ? "The project's .envrc changed since you approved it"
-+      : "This project has a direnv environment",
++      ? gt("The project's .envrc changed since you approved it")
++      : gt("This project has a direnv environment"),
 +    description: review.tooLarge
-+      ? "This .envrc is too large to review here. Run direnv allow in the project to approve it."
++      ? gt(
++          "This .envrc is too large to review here. Run direnv allow in the project to approve it.",
++        )
 +      : changed
-+        ? "Agents keep the environment they started with until you approve the change."
-+        : "Load its .envrc for agents and setup scripts in this project and the worktrees T3 Code creates. It runs code on this machine.",
++        ? gt("Agents keep the environment they started with until you approve the change.")
++        : gt(
++            "Load its .envrc for agents and setup scripts in this project and the worktrees T3 Code creates. It runs code on this machine.",
++          ),
 +    children: review.tooLarge ? undefined : (
 +      <pre className="mt-2 max-h-48 overflow-auto rounded-md bg-muted/50 px-3 py-2 font-mono text-xs leading-relaxed">
 +        {review.lines.map((line, index) => (
@@ -307,47 +329,52 @@ index 0000000000..9b3fb09026
 +      <>
 +        {canTurnOff ? (
 +          <Button size="xs" variant="ghost" disabled={pending} onClick={() => void onTurnOff()}>
-+            Turn off for project
++            <T>Turn off for project</T>
 +          </Button>
 +        ) : null}
 +        {review.tooLarge ? null : (
 +          <Button size="xs" variant="default" disabled={pending} onClick={() => void onApprove()}>
-+            {changed ? "Approve change" : "Approve"}
++            {changed ? gt("Approve change") : gt("Approve")}
 +          </Button>
 +        )}
 +      </>
 +    ) : undefined,
-+    dismissLabel: "Not now",
++    dismissLabel: gt("Not now"),
 +    onDismiss: () => projectEnvironment.dismiss(appAtomRegistry, target, review.sha256),
 +  };
 +}
 diff --git a/apps/web/src/components/settings/ProjectEnvironmentSettings.tsx b/apps/web/src/components/settings/ProjectEnvironmentSettings.tsx
 new file mode 100644
-index 0000000000..5c611a8ad6
+index 0000000000..fed3afe375
 --- /dev/null
 +++ b/apps/web/src/components/settings/ProjectEnvironmentSettings.tsx
-@@ -0,0 +1,68 @@
+@@ -0,0 +1,75 @@
 +import { DEFAULT_UNIFIED_SETTINGS } from "@t3tools/contracts/settings";
++import { useGT } from "gt-react";
 +
 +import { ScopedSwitch } from "./ScopedSwitch";
 +import { SettingResetButton, SettingsRow, SettingsSection } from "./settingsLayout";
-+import { searchableSetting } from "./settingsSearch";
++import { useSearchableSetting } from "./settingsSearch";
 +import { useScopedSettings, useUpdateScopedSettings } from "./useScopedSettings";
 +
 +export function ProjectEnvironmentSettings() {
++  const gt = useGT();
++  const searchableSetting = useSearchableSetting();
 +  const settings = useScopedSettings();
 +  const updateSettings = useUpdateScopedSettings();
 +  return (
-+    <SettingsSection id="project-environment" title="direnv environment">
++    <SettingsSection id="project-environment" title={gt("direnv environment")}>
 +      <SettingsRow
 +        serverScoped
 +        settingKeys={["enableDirenvEnvironment"]}
 +        {...searchableSetting("project-direnv")}
-+        description="Load the project's .envrc for agents and worktree setup scripts. T3 Code asks before loading each new .envrc."
++        description={gt(
++          "Load the project's .envrc for agents and worktree setup scripts. T3 Code asks before loading each new .envrc.",
++        )}
 +        resetAction={
 +          settings.enableDirenvEnvironment !== DEFAULT_UNIFIED_SETTINGS.enableDirenvEnvironment ? (
 +            <SettingResetButton
-+              label="direnv environment"
++              ariaLabel={gt("Reset direnv environment to default")}
 +              onClick={() =>
 +                updateSettings({
 +                  enableDirenvEnvironment: DEFAULT_UNIFIED_SETTINGS.enableDirenvEnvironment,
@@ -363,7 +390,7 @@ index 0000000000..5c611a8ad6
 +            onCheckedChange={(checked) =>
 +              updateSettings({ enableDirenvEnvironment: Boolean(checked) })
 +            }
-+            aria-label="Load direnv environment"
++            aria-label={gt("Load direnv environment")}
 +          />
 +        }
 +      />
@@ -371,11 +398,13 @@ index 0000000000..5c611a8ad6
 +        serverScoped
 +        settingKeys={["trustDirenvChanges"]}
 +        {...searchableSetting("project-direnv-trust")}
-+        description="Approve changes to an approved .envrc without asking. Only for repositories you fully control."
++        description={gt(
++          "Approve changes to an approved .envrc without asking. Only for repositories you fully control.",
++        )}
 +        resetAction={
 +          settings.trustDirenvChanges !== DEFAULT_UNIFIED_SETTINGS.trustDirenvChanges ? (
 +            <SettingResetButton
-+              label="trust .envrc changes"
++              ariaLabel={gt("Reset trust .envrc changes to default")}
 +              onClick={() =>
 +                updateSettings({ trustDirenvChanges: DEFAULT_UNIFIED_SETTINGS.trustDirenvChanges })
 +              }
@@ -388,7 +417,7 @@ index 0000000000..5c611a8ad6
 +            checked={settings.trustDirenvChanges}
 +            disabled={!settings.enableDirenvEnvironment}
 +            onCheckedChange={(checked) => updateSettings({ trustDirenvChanges: Boolean(checked) })}
-+            aria-label="Trust .envrc changes"
++            aria-label={gt("Trust .envrc changes")}
 +          />
 +        }
 +      />
@@ -396,10 +425,10 @@ index 0000000000..5c611a8ad6
 +  );
 +}
 diff --git a/apps/web/src/components/settings/WorktreesSettings.tsx b/apps/web/src/components/settings/WorktreesSettings.tsx
-index a771e92cec..ba86b10fb5 100644
+index 51c529f5d7..a125363ab3 100644
 --- a/apps/web/src/components/settings/WorktreesSettings.tsx
 +++ b/apps/web/src/components/settings/WorktreesSettings.tsx
-@@ -3,6 +3,7 @@ import { DEFAULT_UNIFIED_SETTINGS } from "@t3tools/contracts/settings";
+@@ -4,6 +4,7 @@ import { useGT } from "gt-react";
  import { AdvancedSettings } from "./AdvancedSettings";
  import { BranchNamingSettings } from "./BranchNamingSettings";
  import { WorktreeSubmodulesRow } from "./ProjectDefaultsSettings";
@@ -407,53 +436,665 @@ index a771e92cec..ba86b10fb5 100644
  import { ScopedSwitch } from "./ScopedSwitch";
  import { useSettingsScope } from "./SettingsScopeContext";
  import {
-@@ -64,6 +65,7 @@ export function WorktreesSettingsPanel() {
+@@ -74,6 +75,7 @@ export function WorktreesSettingsPanel() {
            <WorktreeSubmodulesRow />
          </AdvancedSettings>
        </SettingsSection>
 +      <ProjectEnvironmentSettings />
-       <SettingsSection id="worktree-branches" title="Branches">
+       <SettingsSection id="worktree-branches" title={gt("Branches")}>
          <BranchNamingSettings />
        </SettingsSection>
 diff --git a/apps/web/src/components/settings/settingsSearch.ts b/apps/web/src/components/settings/settingsSearch.ts
-index ab5f03a3a2..6298461d86 100644
+index b302661714..5e731886b8 100644
 --- a/apps/web/src/components/settings/settingsSearch.ts
 +++ b/apps/web/src/components/settings/settingsSearch.ts
-@@ -790,13 +790,6 @@ export const SETTINGS_SEARCH_ITEMS = [
+@@ -832,15 +832,6 @@ export const SETTINGS_SEARCH_ITEMS = [
      scope: "environment-defaults",
-     searchTerms: ["caffeinate sleep prevent stay awake power laptop lid inhibit"],
+     searchTerms: [msg("caffeinate sleep prevent stay awake power laptop lid inhibit")],
    },
 -  {
 -    id: "direnv-environment",
--    title: "Load direnv environment",
+-    title: msg("Load direnv environment"),
 -    to: "/settings/general",
 -    scope: "project-defaults",
--    searchTerms: ["envrc nix flake devenv mise dev shell path tools environment variables agents"],
+-    searchTerms: [
+-      msg("envrc nix flake devenv mise dev shell path tools environment variables agents"),
+-    ],
 -  },
    {
      id: "background-activity",
-     title: "Background activity",
-@@ -1242,6 +1235,20 @@ export const SETTINGS_SEARCH_ITEMS = [
+     title: msg("Background activity"),
+@@ -1315,6 +1306,20 @@ export const SETTINGS_SEARCH_ITEMS = [
      to: "/settings/projects",
-     searchTerms: ["commands scripts setup run dev server checkout worktree t3.json import"],
+     searchTerms: [msg("commands scripts setup run dev server checkout worktree t3.json import")],
    },
 +  {
 +    id: "project-direnv",
-+    title: "Load direnv environment",
++    title: msg("Load direnv environment"),
 +    to: "/settings/worktrees",
 +    scope: "project-defaults",
-+    searchTerms: ["direnv envrc nix flake devenv mise shell environment variables path allow"],
++    searchTerms: [msg("direnv envrc nix flake devenv mise shell environment variables path allow")],
 +  },
 +  {
 +    id: "project-direnv-trust",
-+    title: "Trust .envrc changes",
++    title: msg("Trust .envrc changes"),
 +    to: "/settings/worktrees",
 +    scope: "project-defaults",
-+    searchTerms: ["direnv envrc approve allow changes automatically"],
++    searchTerms: [msg("direnv envrc approve allow changes automatically")],
 +  },
    {
      id: "environment-icon",
-     title: "Environment icon",
+     title: msg("Environment icon"),
+diff --git a/apps/web/src/i18n/translations/de.json b/apps/web/src/i18n/translations/de.json
+index ffe19fb43d..05b8de8ad4 100644
+--- a/apps/web/src/i18n/translations/de.json
++++ b/apps/web/src/i18n/translations/de.json
+@@ -4111,6 +4111,8 @@
+   "1b16346722b65812": "{timeLeft} % des Zeitfensters übrig",
+   "728c6cc1431e76c8": "Wird in {duration} zurückgesetzt · {time}",
+   "e16b0b9b490c8bc7": "{label}: {value}",
++  "0d0556795bc6e65d": "On",
++  "b6b71b45e07c391b": "Off",
+   "ba67d0a9ff5dabf0": "Die Zwischenablage-API ist beim Kopieren der Admin-Anfrage nicht verfügbar.",
+   "aef4bec20e799aab": "Die Admin-Anfrage konnte nicht in die Zwischenablage kopiert werden.",
+   "409185e3d9bbdb2c": "Anfrage kopiert",
+@@ -4769,6 +4771,15 @@
+   "5f7f823c458baa51": "Versuche es erneut, um das Repository zu übernehmen.",
+   "64a465553433ba09": "Projekt entfernen",
+   "403ea72058c9e917": "Wiederholen",
++  "7818ab79df7e454d": "Could not approve the .envrc",
++  "975d8b7ad2b8bc4d": "The project's .envrc changed since you approved it",
++  "451cedec648eb86b": "This project has a direnv environment",
++  "7ecef7e18ab712c7": "This .envrc is too large to review here. Run direnv allow in the project to approve it.",
++  "5cbd93ff48829838": "Agents keep the environment they started with until you approve the change.",
++  "ed0a2f455e4bd2d9": "Load its .envrc for agents and setup scripts in this project and the worktrees T3 Code creates. It runs code on this machine.",
++  "5c64c318fd879825": "Approve change",
++  "f746b1e0bfb2ec4a": "Not now",
++  "3b2050fa2923a5b2": "Turn off for project",
+   "9ca929444b3489f2": "Das Skript wurde gelöscht, aber sein Tastenkürzel konnte nicht entfernt werden, weil sich die Berechtigung geändert hat.",
+   "1b08419319fbf29f": "Das Skript wurde gespeichert, aber diese Verbindung kann keine Tastenkürzel mehr ändern.",
+   "b165c3d7e9875f63": "Skript nicht gefunden.",
+@@ -8860,6 +8871,13 @@
+   "1c97d5a78ca1fdb6": "Worktree-Submodule",
+   "2c2b437431e4cd1d": "Keine Anbieter verfügbar",
+   "561c7b30cbf698ec": "Zuletzt ausgewählt",
++  "45ed5c748cf9280f": "direnv environment",
++  "f2f0be3f5a7d3eaa": "Load the project's .envrc for agents and worktree setup scripts. T3 Code asks before loading each new .envrc.",
++  "67dbb17daffb0535": "Reset direnv environment to default",
++  "f186d4f1f24efc34": "Load direnv environment",
++  "0b3e69e4f1271e7f": "Approve changes to an approved .envrc without asking. Only for repositories you fully control.",
++  "8e125dee1f9cd045": "Reset trust .envrc changes to default",
++  "ab3818ce8734cd66": "Trust .envrc changes",
+   "caceacc91363777f": "Projektdateien werden durchsucht…",
+   "5c05c11095f5fba8": "Projektdateien werden indiziert…",
+   "26b576ee6e175b29": "Keine passenden Bilddateien.",
+@@ -11566,8 +11584,6 @@
+   "5b8b854de7ee6f4d": "installierte cli versionen neuer verfügbar codex claude cursor grok fx kiro opencode",
+   "64f12530d55d2ad1": "fortsetzen laufende aktive unterbrochene arbeit neustart rechner absturz desktop update automatisch",
+   "214a98497c4ed05d": "caffeinate ruhezustand verhindern wach bleiben energie laptop deckel inhibit",
+-  "f186d4f1f24efc34": "Load direnv environment",
+-  "174e8ed57b585a50": "envrc nix flake devenv mise dev shell path tools environment variables agents",
+   "00469926c7027e2d": "ausgewogen leistung akku sparen erweitert git fetch anbieter zustand aktualisieren host energie überwachen inaktiv richtlinie",
+   "54e33e572cc71746": "standard arbeitsbereich modus entwurf lokal worktree",
+   "b2ece956b72c4a48": "Submodule",
+@@ -11643,6 +11659,8 @@
+   "39e4c844a9d56a1d": "pull request pr geführtes review leitfaden kurzfassung maintainer",
+   "f27f2e85e05f664c": "pull request pr geführtes review leitfaden vorlieben geschmack prompt eigener",
+   "01cff0c3cb858073": "befehle skripte setup ausführen dev-server checkout worktree t3.json import",
++  "e33f9dd525c5c0d1": "direnv envrc nix flake devenv mise shell environment variables path allow",
++  "98ad1fe5125bccd3": "direnv envrc approve allow changes automatically",
+   "c349ea1db3f9e9f1": "Umgebungssymbol",
+   "18bd7981d6c50994": "rechner symbol seitenleiste mac mini studio laptop desktop server cloud vm",
+   "8ac2984f4e732091": "ausschalten einschalten deaktivieren aktivieren lokaler server agenten nur remote neustart",
+diff --git a/apps/web/src/i18n/translations/en.json b/apps/web/src/i18n/translations/en.json
+index c899ef1f84..5650aeac4e 100644
+--- a/apps/web/src/i18n/translations/en.json
++++ b/apps/web/src/i18n/translations/en.json
+@@ -4110,6 +4110,8 @@
+   "1b16346722b65812": "{timeLeft}% of the window left",
+   "728c6cc1431e76c8": "Resets in {duration} · {time}",
+   "e16b0b9b490c8bc7": "{label}: {value}",
++  "0d0556795bc6e65d": "On",
++  "b6b71b45e07c391b": "Off",
+   "ba67d0a9ff5dabf0": "Clipboard API is unavailable while copying admin request.",
+   "aef4bec20e799aab": "Failed to copy admin request to the clipboard.",
+   "409185e3d9bbdb2c": "Request copied",
+@@ -4768,6 +4770,15 @@
+   "5f7f823c458baa51": "Retry to bring in the repository.",
+   "64a465553433ba09": "Remove project",
+   "403ea72058c9e917": "Retry",
++  "7818ab79df7e454d": "Could not approve the .envrc",
++  "975d8b7ad2b8bc4d": "The project's .envrc changed since you approved it",
++  "451cedec648eb86b": "This project has a direnv environment",
++  "7ecef7e18ab712c7": "This .envrc is too large to review here. Run direnv allow in the project to approve it.",
++  "5cbd93ff48829838": "Agents keep the environment they started with until you approve the change.",
++  "ed0a2f455e4bd2d9": "Load its .envrc for agents and setup scripts in this project and the worktrees T3 Code creates. It runs code on this machine.",
++  "5c64c318fd879825": "Approve change",
++  "f746b1e0bfb2ec4a": "Not now",
++  "3b2050fa2923a5b2": "Turn off for project",
+   "9ca929444b3489f2": "The script was deleted, but its keyboard shortcut could not be removed because permission changed.",
+   "1b08419319fbf29f": "The script was saved, but this connection can no longer change keyboard shortcuts.",
+   "b165c3d7e9875f63": "Script not found.",
+@@ -8868,6 +8879,13 @@
+   "1c97d5a78ca1fdb6": "Worktree submodules",
+   "2c2b437431e4cd1d": "No providers available",
+   "561c7b30cbf698ec": "Last selected",
++  "45ed5c748cf9280f": "direnv environment",
++  "f2f0be3f5a7d3eaa": "Load the project's .envrc for agents and worktree setup scripts. T3 Code asks before loading each new .envrc.",
++  "67dbb17daffb0535": "Reset direnv environment to default",
++  "f186d4f1f24efc34": "Load direnv environment",
++  "0b3e69e4f1271e7f": "Approve changes to an approved .envrc without asking. Only for repositories you fully control.",
++  "8e125dee1f9cd045": "Reset trust .envrc changes to default",
++  "ab3818ce8734cd66": "Trust .envrc changes",
+   "caceacc91363777f": "Searching project files…",
+   "5c05c11095f5fba8": "Indexing project files…",
+   "26b576ee6e175b29": "No matching image files.",
+@@ -11574,8 +11592,6 @@
+   "5b8b854de7ee6f4d": "installed cli versions newer available codex claude cursor grok fx kiro opencode",
+   "64f12530d55d2ad1": "resume running active interrupted work restart reboot machine crash desktop update automatically",
+   "214a98497c4ed05d": "caffeinate sleep prevent stay awake power laptop lid inhibit",
+-  "f186d4f1f24efc34": "Load direnv environment",
+-  "174e8ed57b585a50": "envrc nix flake devenv mise dev shell path tools environment variables agents",
+   "00469926c7027e2d": "balanced performance battery saver advanced git fetch provider health refresh host power monitor idle policy",
+   "54e33e572cc71746": "default workspace mode draft local worktree",
+   "b2ece956b72c4a48": "Submodules",
+@@ -11651,6 +11667,8 @@
+   "39e4c844a9d56a1d": "pull request pr guided review guide brief maintainer",
+   "f27f2e85e05f664c": "pull request pr guided review guide preferences taste prompt custom",
+   "01cff0c3cb858073": "commands scripts setup run dev server checkout worktree t3.json import",
++  "e33f9dd525c5c0d1": "direnv envrc nix flake devenv mise shell environment variables path allow",
++  "98ad1fe5125bccd3": "direnv envrc approve allow changes automatically",
+   "c349ea1db3f9e9f1": "Environment icon",
+   "18bd7981d6c50994": "machine glyph sidebar mac mini studio laptop desktop server cloud vm",
+   "8ac2984f4e732091": "turn off on disable enable local server agents remote only restart",
+diff --git a/apps/web/src/i18n/translations/es.json b/apps/web/src/i18n/translations/es.json
+index 353aa7b0fc..617472e593 100644
+--- a/apps/web/src/i18n/translations/es.json
++++ b/apps/web/src/i18n/translations/es.json
+@@ -4108,6 +4108,8 @@
+   "1b16346722b65812": "Queda un {timeLeft}% de la ventana",
+   "728c6cc1431e76c8": "Se restablece en {duration} · {time}",
+   "e16b0b9b490c8bc7": "{label}: {value}",
++  "0d0556795bc6e65d": "On",
++  "b6b71b45e07c391b": "Off",
+   "ba67d0a9ff5dabf0": "La API del portapapeles no está disponible al copiar la solicitud de administrador.",
+   "aef4bec20e799aab": "No se pudo copiar la solicitud de administrador al portapapeles.",
+   "409185e3d9bbdb2c": "Solicitud copiada",
+@@ -4766,6 +4768,15 @@
+   "5f7f823c458baa51": "Vuelve a intentarlo para traer el repositorio.",
+   "64a465553433ba09": "Quitar proyecto",
+   "403ea72058c9e917": "Reintentar",
++  "7818ab79df7e454d": "Could not approve the .envrc",
++  "975d8b7ad2b8bc4d": "The project's .envrc changed since you approved it",
++  "451cedec648eb86b": "This project has a direnv environment",
++  "7ecef7e18ab712c7": "This .envrc is too large to review here. Run direnv allow in the project to approve it.",
++  "5cbd93ff48829838": "Agents keep the environment they started with until you approve the change.",
++  "ed0a2f455e4bd2d9": "Load its .envrc for agents and setup scripts in this project and the worktrees T3 Code creates. It runs code on this machine.",
++  "5c64c318fd879825": "Approve change",
++  "f746b1e0bfb2ec4a": "Not now",
++  "3b2050fa2923a5b2": "Turn off for project",
+   "9ca929444b3489f2": "El script se eliminó, pero no se pudo quitar su atajo de teclado porque cambiaron los permisos.",
+   "1b08419319fbf29f": "El script se guardó, pero esta conexión ya no puede cambiar los atajos de teclado.",
+   "b165c3d7e9875f63": "No se encontró el script.",
+@@ -8858,6 +8869,13 @@
+   "1c97d5a78ca1fdb6": "Submódulos de worktrees",
+   "2c2b437431e4cd1d": "No hay proveedores disponibles",
+   "561c7b30cbf698ec": "Última selección",
++  "45ed5c748cf9280f": "direnv environment",
++  "f2f0be3f5a7d3eaa": "Load the project's .envrc for agents and worktree setup scripts. T3 Code asks before loading each new .envrc.",
++  "67dbb17daffb0535": "Reset direnv environment to default",
++  "f186d4f1f24efc34": "Load direnv environment",
++  "0b3e69e4f1271e7f": "Approve changes to an approved .envrc without asking. Only for repositories you fully control.",
++  "8e125dee1f9cd045": "Reset trust .envrc changes to default",
++  "ab3818ce8734cd66": "Trust .envrc changes",
+   "caceacc91363777f": "Buscando archivos del proyecto…",
+   "5c05c11095f5fba8": "Indexando archivos del proyecto…",
+   "26b576ee6e175b29": "No hay archivos de imagen coincidentes.",
+@@ -11559,8 +11577,6 @@
+   "5b8b854de7ee6f4d": "instalado cli versiones más recientes disponibles codex claude cursor grok fx kiro opencode",
+   "64f12530d55d2ad1": "reanudar en ejecución activo interrumpido trabajo reiniciar máquina fallo actualización de escritorio automáticamente",
+   "214a98497c4ed05d": "caffeinate reposo evitar mantener activo energía portátil tapa inhibir",
+-  "f186d4f1f24efc34": "Load direnv environment",
+-  "174e8ed57b585a50": "envrc nix flake devenv mise dev shell path tools environment variables agents",
+   "00469926c7027e2d": "equilibrado rendimiento ahorro de batería avanzado git fetch proveedor estado actualizar host energía monitor inactivo política",
+   "54e33e572cc71746": "espacio de trabajo predeterminado modo borrador local worktree",
+   "b2ece956b72c4a48": "Submódulos",
+@@ -11636,6 +11652,8 @@
+   "39e4c844a9d56a1d": "pull request pr revisión guiada guía resumen mantenedor",
+   "f27f2e85e05f664c": "pull request pr revisión guiada guía preferencias gusto prompt personalizado",
+   "01cff0c3cb858073": "comandos scripts configuración ejecutar servidor de desarrollo checkout worktree t3.json importar",
++  "e33f9dd525c5c0d1": "direnv envrc nix flake devenv mise shell environment variables path allow",
++  "98ad1fe5125bccd3": "direnv envrc approve allow changes automatically",
+   "c349ea1db3f9e9f1": "Icono del entorno",
+   "18bd7981d6c50994": "máquina glifo barra lateral mac mini studio portátil escritorio servidor nube vm",
+   "8ac2984f4e732091": "apagar encender desactivar activar servidor local agentes solo remoto reiniciar",
+diff --git a/apps/web/src/i18n/translations/fr.json b/apps/web/src/i18n/translations/fr.json
+index 7614b429fd..f1fd8cebbe 100644
+--- a/apps/web/src/i18n/translations/fr.json
++++ b/apps/web/src/i18n/translations/fr.json
+@@ -4109,6 +4109,8 @@
+   "1b16346722b65812": "{timeLeft} % de la fenêtre restant",
+   "728c6cc1431e76c8": "Réinitialisation dans {duration} · {time}",
+   "e16b0b9b490c8bc7": "{label} : {value}",
++  "0d0556795bc6e65d": "On",
++  "b6b71b45e07c391b": "Off",
+   "ba67d0a9ff5dabf0": "L’API Presse-papiers n’est pas disponible pour copier la demande à l’administrateur.",
+   "aef4bec20e799aab": "Impossible de copier la demande à l’administrateur dans le presse-papiers.",
+   "409185e3d9bbdb2c": "Demande copiée",
+@@ -4767,6 +4769,15 @@
+   "5f7f823c458baa51": "Réessayez pour récupérer le dépôt.",
+   "64a465553433ba09": "Retirer le projet",
+   "403ea72058c9e917": "Réessayer",
++  "7818ab79df7e454d": "Could not approve the .envrc",
++  "975d8b7ad2b8bc4d": "The project's .envrc changed since you approved it",
++  "451cedec648eb86b": "This project has a direnv environment",
++  "7ecef7e18ab712c7": "This .envrc is too large to review here. Run direnv allow in the project to approve it.",
++  "5cbd93ff48829838": "Agents keep the environment they started with until you approve the change.",
++  "ed0a2f455e4bd2d9": "Load its .envrc for agents and setup scripts in this project and the worktrees T3 Code creates. It runs code on this machine.",
++  "5c64c318fd879825": "Approve change",
++  "f746b1e0bfb2ec4a": "Not now",
++  "3b2050fa2923a5b2": "Turn off for project",
+   "9ca929444b3489f2": "Le script a été supprimé, mais son raccourci clavier n’a pas pu être retiré car les autorisations ont changé.",
+   "1b08419319fbf29f": "Le script a été enregistré, mais cette connexion ne peut plus modifier les raccourcis clavier.",
+   "b165c3d7e9875f63": "Script introuvable.",
+@@ -8860,6 +8871,13 @@
+   "1c97d5a78ca1fdb6": "Sous-modules des worktrees",
+   "2c2b437431e4cd1d": "Aucun fournisseur disponible",
+   "561c7b30cbf698ec": "Dernière sélection",
++  "45ed5c748cf9280f": "direnv environment",
++  "f2f0be3f5a7d3eaa": "Load the project's .envrc for agents and worktree setup scripts. T3 Code asks before loading each new .envrc.",
++  "67dbb17daffb0535": "Reset direnv environment to default",
++  "f186d4f1f24efc34": "Load direnv environment",
++  "0b3e69e4f1271e7f": "Approve changes to an approved .envrc without asking. Only for repositories you fully control.",
++  "8e125dee1f9cd045": "Reset trust .envrc changes to default",
++  "ab3818ce8734cd66": "Trust .envrc changes",
+   "caceacc91363777f": "Recherche dans les fichiers du projet…",
+   "5c05c11095f5fba8": "Indexation des fichiers du projet…",
+   "26b576ee6e175b29": "Aucun fichier image correspondant.",
+@@ -11564,8 +11582,6 @@
+   "5b8b854de7ee6f4d": "installé cli versions plus récentes disponibles codex claude cursor grok fx kiro opencode",
+   "64f12530d55d2ad1": "reprendre en cours actif interrompu travail redémarrer redémarrage machine plantage mise à jour bureau automatiquement",
+   "214a98497c4ed05d": "caffeinate veille empêcher rester éveillé alimentation portable capot inhiber",
+-  "f186d4f1f24efc34": "Load direnv environment",
+-  "174e8ed57b585a50": "envrc nix flake devenv mise dev shell path tools environment variables agents",
+   "00469926c7027e2d": "équilibré performances économie batterie avancé git fetch fournisseur état actualisation hôte énergie surveillance inactif politique",
+   "54e33e572cc71746": "espace de travail par défaut mode brouillon local worktree",
+   "b2ece956b72c4a48": "Sous-modules",
+@@ -11641,6 +11657,8 @@
+   "39e4c844a9d56a1d": "pull request pr revue guidée guide résumé mainteneur",
+   "f27f2e85e05f664c": "pull request pr revue guidée guide préférences goût prompt personnalisé",
+   "01cff0c3cb858073": "commandes scripts configuration exécuter serveur de dev extraction worktree t3.json importer",
++  "e33f9dd525c5c0d1": "direnv envrc nix flake devenv mise shell environment variables path allow",
++  "98ad1fe5125bccd3": "direnv envrc approve allow changes automatically",
+   "c349ea1db3f9e9f1": "Icône de l’environnement",
+   "18bd7981d6c50994": "machine glyphe barre latérale mac mini studio portable bureau serveur cloud vm",
+   "8ac2984f4e732091": "désactiver activer serveur local agents distant uniquement redémarrer",
+diff --git a/apps/web/src/i18n/translations/ja.json b/apps/web/src/i18n/translations/ja.json
+index 3a0138326a..500ffd5b1d 100644
+--- a/apps/web/src/i18n/translations/ja.json
++++ b/apps/web/src/i18n/translations/ja.json
+@@ -4099,6 +4099,8 @@
+   "1b16346722b65812": "期間の残り {timeLeft}%",
+   "728c6cc1431e76c8": "{duration} 後にリセット · {time}",
+   "e16b0b9b490c8bc7": "{label}: {value}",
++  "0d0556795bc6e65d": "On",
++  "b6b71b45e07c391b": "Off",
+   "ba67d0a9ff5dabf0": "管理者へのリクエストをコピーする際にクリップボード API を利用できませんでした。",
+   "aef4bec20e799aab": "管理者へのリクエストをクリップボードにコピーできませんでした。",
+   "409185e3d9bbdb2c": "リクエストをコピーしました",
+@@ -4756,6 +4758,15 @@
+   "5f7f823c458baa51": "リポジトリを取り込むには再試行してください。",
+   "64a465553433ba09": "プロジェクトを削除",
+   "403ea72058c9e917": "再試行",
++  "7818ab79df7e454d": "Could not approve the .envrc",
++  "975d8b7ad2b8bc4d": "The project's .envrc changed since you approved it",
++  "451cedec648eb86b": "This project has a direnv environment",
++  "7ecef7e18ab712c7": "This .envrc is too large to review here. Run direnv allow in the project to approve it.",
++  "5cbd93ff48829838": "Agents keep the environment they started with until you approve the change.",
++  "ed0a2f455e4bd2d9": "Load its .envrc for agents and setup scripts in this project and the worktrees T3 Code creates. It runs code on this machine.",
++  "5c64c318fd879825": "Approve change",
++  "f746b1e0bfb2ec4a": "Not now",
++  "3b2050fa2923a5b2": "Turn off for project",
+   "9ca929444b3489f2": "スクリプトは削除されましたが、権限が変更されたため、キーボードショートカットを削除できませんでした。",
+   "1b08419319fbf29f": "スクリプトは保存されましたが、この接続ではキーボードショートカットを変更できなくなりました。",
+   "b165c3d7e9875f63": "スクリプトが見つかりません。",
+@@ -8816,6 +8827,13 @@
+   "1c97d5a78ca1fdb6": "ワークツリーのサブモジュール",
+   "2c2b437431e4cd1d": "利用できるプロバイダーはありません",
+   "561c7b30cbf698ec": "前回の選択",
++  "45ed5c748cf9280f": "direnv environment",
++  "f2f0be3f5a7d3eaa": "Load the project's .envrc for agents and worktree setup scripts. T3 Code asks before loading each new .envrc.",
++  "67dbb17daffb0535": "Reset direnv environment to default",
++  "f186d4f1f24efc34": "Load direnv environment",
++  "0b3e69e4f1271e7f": "Approve changes to an approved .envrc without asking. Only for repositories you fully control.",
++  "8e125dee1f9cd045": "Reset trust .envrc changes to default",
++  "ab3818ce8734cd66": "Trust .envrc changes",
+   "caceacc91363777f": "プロジェクトのファイルを検索しています…",
+   "5c05c11095f5fba8": "プロジェクトのファイルをインデックスしています…",
+   "26b576ee6e175b29": "一致する画像ファイルはありません。",
+@@ -11514,8 +11532,6 @@
+   "5b8b854de7ee6f4d": "インストール済み CLI バージョン 新しい 利用可能 Codex Claude Cursor Grok fx Kiro OpenCode update",
+   "64f12530d55d2ad1": "再開 実行中 アクティブ 中断 作業 再起動 マシン クラッシュ デスクトップ 更新 自動 resume",
+   "214a98497c4ed05d": "caffeinate スリープ 防止 スリープしない 電源 ノートパソコン 蓋 inhibit sleep",
+-  "f186d4f1f24efc34": "Load direnv environment",
+-  "174e8ed57b585a50": "envrc nix flake devenv mise dev shell path tools environment variables agents",
+   "00469926c7027e2d": "バランス パフォーマンス バッテリー節約 詳細 Git フェッチ プロバイダー ヘルス 更新 ホスト 電源 モニター アイドル ポリシー battery",
+   "54e33e572cc71746": "デフォルト ワークスペース モード 下書き ローカル ワークツリー workspace",
+   "b2ece956b72c4a48": "サブモジュール",
+@@ -11591,6 +11607,8 @@
+   "39e4c844a9d56a1d": "プルリクエスト PR ガイド付き レビュー ガイド 概要 メンテナー review guide",
+   "f27f2e85e05f664c": "プルリクエスト PR ガイド付き レビュー ガイド 好み テイスト プロンプト カスタム review guide",
+   "01cff0c3cb858073": "コマンド スクリプト セットアップ 実行 開発サーバー チェックアウト ワークツリー t3.json インポート scripts",
++  "e33f9dd525c5c0d1": "direnv envrc nix flake devenv mise shell environment variables path allow",
++  "98ad1fe5125bccd3": "direnv envrc approve allow changes automatically",
+   "c349ea1db3f9e9f1": "環境のアイコン",
+   "18bd7981d6c50994": "マシン グリフ サイドバー Mac mini Studio ノートパソコン デスクトップ サーバー クラウド VM machine",
+   "8ac2984f4e732091": "オフ オン 無効 有効 ローカルサーバー エージェント リモートのみ 再起動 local server",
+diff --git a/apps/web/src/i18n/translations/ko.json b/apps/web/src/i18n/translations/ko.json
+index 7b49a4593b..8f2675cb90 100644
+--- a/apps/web/src/i18n/translations/ko.json
++++ b/apps/web/src/i18n/translations/ko.json
+@@ -4096,6 +4096,8 @@
+   "1b16346722b65812": "기간 {timeLeft}% 남음",
+   "728c6cc1431e76c8": "{duration} 후 초기화 · {time}",
+   "e16b0b9b490c8bc7": "{label}: {value}",
++  "0d0556795bc6e65d": "On",
++  "b6b71b45e07c391b": "Off",
+   "ba67d0a9ff5dabf0": "관리자 요청을 복사하는 중 클립보드 API를 사용할 수 없습니다.",
+   "aef4bec20e799aab": "관리자 요청을 클립보드에 복사하지 못했습니다.",
+   "409185e3d9bbdb2c": "요청 복사됨",
+@@ -4753,6 +4755,15 @@
+   "5f7f823c458baa51": "저장소를 가져오려면 다시 시도하세요.",
+   "64a465553433ba09": "프로젝트 제거",
+   "403ea72058c9e917": "다시 시도",
++  "7818ab79df7e454d": "Could not approve the .envrc",
++  "975d8b7ad2b8bc4d": "The project's .envrc changed since you approved it",
++  "451cedec648eb86b": "This project has a direnv environment",
++  "7ecef7e18ab712c7": "This .envrc is too large to review here. Run direnv allow in the project to approve it.",
++  "5cbd93ff48829838": "Agents keep the environment they started with until you approve the change.",
++  "ed0a2f455e4bd2d9": "Load its .envrc for agents and setup scripts in this project and the worktrees T3 Code creates. It runs code on this machine.",
++  "5c64c318fd879825": "Approve change",
++  "f746b1e0bfb2ec4a": "Not now",
++  "3b2050fa2923a5b2": "Turn off for project",
+   "9ca929444b3489f2": "스크립트를 삭제했지만 권한이 변경되어 단축키를 제거할 수 없습니다.",
+   "1b08419319fbf29f": "스크립트를 저장했지만 이 연결로는 더 이상 단축키를 변경할 수 없습니다.",
+   "b165c3d7e9875f63": "스크립트를 찾을 수 없습니다.",
+@@ -8819,6 +8830,13 @@
+   "1c97d5a78ca1fdb6": "워크트리 하위 모듈",
+   "2c2b437431e4cd1d": "사용 가능한 제공자가 없습니다",
+   "561c7b30cbf698ec": "마지막 선택",
++  "45ed5c748cf9280f": "direnv environment",
++  "f2f0be3f5a7d3eaa": "Load the project's .envrc for agents and worktree setup scripts. T3 Code asks before loading each new .envrc.",
++  "67dbb17daffb0535": "Reset direnv environment to default",
++  "f186d4f1f24efc34": "Load direnv environment",
++  "0b3e69e4f1271e7f": "Approve changes to an approved .envrc without asking. Only for repositories you fully control.",
++  "8e125dee1f9cd045": "Reset trust .envrc changes to default",
++  "ab3818ce8734cd66": "Trust .envrc changes",
+   "caceacc91363777f": "프로젝트 파일 검색 중…",
+   "5c05c11095f5fba8": "프로젝트 파일 색인 중…",
+   "26b576ee6e175b29": "일치하는 이미지 파일이 없습니다.",
+@@ -11511,8 +11529,6 @@
+   "5b8b854de7ee6f4d": "설치된 CLI 버전 최신 사용 가능 Codex Claude Cursor Grok fx Kiro OpenCode",
+   "64f12530d55d2ad1": "재개 실행 중 활성 중단된 작업 다시 시작 재부팅 머신 충돌 데스크톱 업데이트 자동",
+   "214a98497c4ed05d": "caffeinate 절전 방지 깨어 있기 전원 노트북 덮개 inhibit",
+-  "f186d4f1f24efc34": "Load direnv environment",
+-  "174e8ed57b585a50": "envrc nix flake devenv mise dev shell path tools environment variables agents",
+   "00469926c7027e2d": "균형 성능 배터리 절약 고급 git 가져오기 제공자 상태 새로 고침 호스트 전원 모니터 유휴 정책",
+   "54e33e572cc71746": "기본 작업 영역 모드 초안 로컬 워크트리",
+   "b2ece956b72c4a48": "하위 모듈",
+@@ -11588,6 +11604,8 @@
+   "39e4c844a9d56a1d": "풀 리퀘스트 PR 안내 검토 가이드 요약 관리자",
+   "f27f2e85e05f664c": "풀 리퀘스트 PR 안내 검토 가이드 기본 설정 취향 프롬프트 사용자 지정",
+   "01cff0c3cb858073": "명령 스크립트 설정 실행 개발 서버 체크아웃 워크트리 t3.json 가져오기",
++  "e33f9dd525c5c0d1": "direnv envrc nix flake devenv mise shell environment variables path allow",
++  "98ad1fe5125bccd3": "direnv envrc approve allow changes automatically",
+   "c349ea1db3f9e9f1": "환경 아이콘",
+   "18bd7981d6c50994": "머신 아이콘 사이드바 mac mini studio 노트북 데스크톱 서버 클라우드 vm",
+   "8ac2984f4e732091": "끄기 켜기 사용 안 함 사용 로컬 서버 에이전트 원격 전용 다시 시작",
+diff --git a/apps/web/src/i18n/translations/pt-BR.json b/apps/web/src/i18n/translations/pt-BR.json
+index 7b8f2a7827..aba6d1cfb0 100644
+--- a/apps/web/src/i18n/translations/pt-BR.json
++++ b/apps/web/src/i18n/translations/pt-BR.json
+@@ -4108,6 +4108,8 @@
+   "1b16346722b65812": "{timeLeft}% da janela restante",
+   "728c6cc1431e76c8": "Renova em {duration} · {time}",
+   "e16b0b9b490c8bc7": "{label}: {value}",
++  "0d0556795bc6e65d": "On",
++  "b6b71b45e07c391b": "Off",
+   "ba67d0a9ff5dabf0": "A API da área de transferência não está disponível ao copiar o pedido para o administrador.",
+   "aef4bec20e799aab": "Falha ao copiar o pedido para o administrador para a área de transferência.",
+   "409185e3d9bbdb2c": "Pedido copiado",
+@@ -4766,6 +4768,15 @@
+   "5f7f823c458baa51": "Tente novamente para trazer o repositório.",
+   "64a465553433ba09": "Remover projeto",
+   "403ea72058c9e917": "Tentar novamente",
++  "7818ab79df7e454d": "Could not approve the .envrc",
++  "975d8b7ad2b8bc4d": "The project's .envrc changed since you approved it",
++  "451cedec648eb86b": "This project has a direnv environment",
++  "7ecef7e18ab712c7": "This .envrc is too large to review here. Run direnv allow in the project to approve it.",
++  "5cbd93ff48829838": "Agents keep the environment they started with until you approve the change.",
++  "ed0a2f455e4bd2d9": "Load its .envrc for agents and setup scripts in this project and the worktrees T3 Code creates. It runs code on this machine.",
++  "5c64c318fd879825": "Approve change",
++  "f746b1e0bfb2ec4a": "Not now",
++  "3b2050fa2923a5b2": "Turn off for project",
+   "9ca929444b3489f2": "O script foi excluído, mas o atalho de teclado não pôde ser removido porque a permissão mudou.",
+   "1b08419319fbf29f": "O script foi salvo, mas esta conexão não pode mais alterar atalhos de teclado.",
+   "b165c3d7e9875f63": "Script não encontrado.",
+@@ -8859,6 +8870,13 @@
+   "1c97d5a78ca1fdb6": "Submódulos do worktree",
+   "2c2b437431e4cd1d": "Nenhum provedor disponível",
+   "561c7b30cbf698ec": "Último selecionado",
++  "45ed5c748cf9280f": "direnv environment",
++  "f2f0be3f5a7d3eaa": "Load the project's .envrc for agents and worktree setup scripts. T3 Code asks before loading each new .envrc.",
++  "67dbb17daffb0535": "Reset direnv environment to default",
++  "f186d4f1f24efc34": "Load direnv environment",
++  "0b3e69e4f1271e7f": "Approve changes to an approved .envrc without asking. Only for repositories you fully control.",
++  "8e125dee1f9cd045": "Reset trust .envrc changes to default",
++  "ab3818ce8734cd66": "Trust .envrc changes",
+   "caceacc91363777f": "Pesquisando arquivos do projeto…",
+   "5c05c11095f5fba8": "Indexando arquivos do projeto…",
+   "26b576ee6e175b29": "Nenhum arquivo de imagem correspondente.",
+@@ -11563,8 +11581,6 @@
+   "5b8b854de7ee6f4d": "cli instaladas versões mais novas disponíveis codex claude cursor grok fx kiro opencode",
+   "64f12530d55d2ad1": "retomar em execução ativo interrompido trabalho reiniciar reboot máquina falha atualização do desktop automaticamente",
+   "214a98497c4ed05d": "caffeinate repouso impedir manter acordado energia notebook tampa inibir",
+-  "f186d4f1f24efc34": "Load direnv environment",
+-  "174e8ed57b585a50": "envrc nix flake devenv mise dev shell path tools environment variables agents",
+   "00469926c7027e2d": "equilibrado desempenho economia de bateria avançado git fetch verificação de provedores atualizar host energia monitor política de ociosidade",
+   "54e33e572cc71746": "workspace padrão modo rascunho local worktree",
+   "b2ece956b72c4a48": "Submódulos",
+@@ -11640,6 +11656,8 @@
+   "39e4c844a9d56a1d": "pull request pr revisão guiada guia resumo mantenedor",
+   "f27f2e85e05f664c": "pull request pr revisão guiada guia preferências gosto prompt personalizado",
+   "01cff0c3cb858073": "comandos scripts setup executar servidor dev checkout worktree t3.json importar",
++  "e33f9dd525c5c0d1": "direnv envrc nix flake devenv mise shell environment variables path allow",
++  "98ad1fe5125bccd3": "direnv envrc approve allow changes automatically",
+   "c349ea1db3f9e9f1": "Ícone do ambiente",
+   "18bd7981d6c50994": "máquina glifo barra lateral mac mini studio notebook desktop servidor nuvem vm",
+   "8ac2984f4e732091": "desligar ligar desativar ativar servidor local agentes só remoto reiniciar",
+diff --git a/apps/web/src/i18n/translations/ru.json b/apps/web/src/i18n/translations/ru.json
+index 979658d7d4..b74b579c2c 100644
+--- a/apps/web/src/i18n/translations/ru.json
++++ b/apps/web/src/i18n/translations/ru.json
+@@ -4108,6 +4108,8 @@
+   "1b16346722b65812": "От окна осталось {timeLeft}%",
+   "728c6cc1431e76c8": "Сброс через {duration} · {time}",
+   "e16b0b9b490c8bc7": "{label}: {value}",
++  "0d0556795bc6e65d": "On",
++  "b6b71b45e07c391b": "Off",
+   "ba67d0a9ff5dabf0": "API буфера обмена недоступен при копировании запроса администратору.",
+   "aef4bec20e799aab": "Не удалось скопировать запрос администратору в буфер обмена.",
+   "409185e3d9bbdb2c": "Запрос скопирован",
+@@ -4766,6 +4768,15 @@
+   "5f7f823c458baa51": "Повторите, чтобы получить репозиторий.",
+   "64a465553433ba09": "Удалить проект",
+   "403ea72058c9e917": "Повторить",
++  "7818ab79df7e454d": "Could not approve the .envrc",
++  "975d8b7ad2b8bc4d": "The project's .envrc changed since you approved it",
++  "451cedec648eb86b": "This project has a direnv environment",
++  "7ecef7e18ab712c7": "This .envrc is too large to review here. Run direnv allow in the project to approve it.",
++  "5cbd93ff48829838": "Agents keep the environment they started with until you approve the change.",
++  "ed0a2f455e4bd2d9": "Load its .envrc for agents and setup scripts in this project and the worktrees T3 Code creates. It runs code on this machine.",
++  "5c64c318fd879825": "Approve change",
++  "f746b1e0bfb2ec4a": "Not now",
++  "3b2050fa2923a5b2": "Turn off for project",
+   "9ca929444b3489f2": "Скрипт удалён, но его сочетание клавиш не удалось удалить: изменились разрешения.",
+   "1b08419319fbf29f": "Скрипт сохранён, но это подключение больше не может менять сочетания клавиш.",
+   "b165c3d7e9875f63": "Скрипт не найден.",
+@@ -8860,6 +8871,13 @@
+   "1c97d5a78ca1fdb6": "Подмодули рабочих деревьев",
+   "2c2b437431e4cd1d": "Нет доступных провайдеров",
+   "561c7b30cbf698ec": "Последний выбранный",
++  "45ed5c748cf9280f": "direnv environment",
++  "f2f0be3f5a7d3eaa": "Load the project's .envrc for agents and worktree setup scripts. T3 Code asks before loading each new .envrc.",
++  "67dbb17daffb0535": "Reset direnv environment to default",
++  "f186d4f1f24efc34": "Load direnv environment",
++  "0b3e69e4f1271e7f": "Approve changes to an approved .envrc without asking. Only for repositories you fully control.",
++  "8e125dee1f9cd045": "Reset trust .envrc changes to default",
++  "ab3818ce8734cd66": "Trust .envrc changes",
+   "caceacc91363777f": "Поиск файлов проекта…",
+   "5c05c11095f5fba8": "Индексация файлов проекта…",
+   "26b576ee6e175b29": "Нет подходящих изображений.",
+@@ -11564,8 +11582,6 @@
+   "5b8b854de7ee6f4d": "установленные cli версии новее доступно codex claude cursor grok fx kiro opencode",
+   "64f12530d55d2ad1": "возобновить выполняющаяся активная прерванная работа перезапуск перезагрузка компьютер сбой обновление десктоп автоматически",
+   "214a98497c4ed05d": "caffeinate сон не давать уснуть бодрствование питание ноутбук крышка блокировать",
+-  "f186d4f1f24efc34": "Load direnv environment",
+-  "174e8ed57b585a50": "envrc nix flake devenv mise dev shell path tools environment variables agents",
+   "00469926c7027e2d": "сбалансированный производительность экономия батареи дополнительно git fetch проверка провайдеров обновление питание хоста монитор простой политика",
+   "54e33e572cc71746": "рабочая область по умолчанию режим черновик локально рабочее дерево",
+   "b2ece956b72c4a48": "Подмодули",
+@@ -11641,6 +11657,8 @@
+   "39e4c844a9d56a1d": "пул-реквест pr управляемое ревью руководство сводка мейнтейнер",
+   "f27f2e85e05f664c": "пул-реквест pr управляемое ревью руководство предпочтения вкус промпт свой",
+   "01cff0c3cb858073": "команды скрипты настройка запуск dev-сервер checkout рабочее дерево t3.json импорт",
++  "e33f9dd525c5c0d1": "direnv envrc nix flake devenv mise shell environment variables path allow",
++  "98ad1fe5125bccd3": "direnv envrc approve allow changes automatically",
+   "c349ea1db3f9e9f1": "Значок окружения",
+   "18bd7981d6c50994": "значок компьютера боковая панель mac mini studio ноутбук десктоп сервер облако vm",
+   "8ac2984f4e732091": "выключить включить отключить локальный сервер агенты только удалённо перезапуск",
+diff --git a/apps/web/src/i18n/translations/sv.json b/apps/web/src/i18n/translations/sv.json
+index 6c35ae833a..5df1fedb1a 100644
+--- a/apps/web/src/i18n/translations/sv.json
++++ b/apps/web/src/i18n/translations/sv.json
+@@ -4109,6 +4109,8 @@
+   "1b16346722b65812": "{timeLeft} % av fönstret kvar",
+   "728c6cc1431e76c8": "Återställs om {duration} · {time}",
+   "e16b0b9b490c8bc7": "{label}: {value}",
++  "0d0556795bc6e65d": "On",
++  "b6b71b45e07c391b": "Off",
+   "ba67d0a9ff5dabf0": "Urklipps-API:t är inte tillgängligt vid kopiering av administratörsbegäran.",
+   "aef4bec20e799aab": "Kunde inte kopiera administratörsbegäran till urklipp.",
+   "409185e3d9bbdb2c": "Begäran kopierades",
+@@ -4767,6 +4769,15 @@
+   "5f7f823c458baa51": "Försök igen för att hämta in repot.",
+   "64a465553433ba09": "Ta bort projekt",
+   "403ea72058c9e917": "Försök igen",
++  "7818ab79df7e454d": "Could not approve the .envrc",
++  "975d8b7ad2b8bc4d": "The project's .envrc changed since you approved it",
++  "451cedec648eb86b": "This project has a direnv environment",
++  "7ecef7e18ab712c7": "This .envrc is too large to review here. Run direnv allow in the project to approve it.",
++  "5cbd93ff48829838": "Agents keep the environment they started with until you approve the change.",
++  "ed0a2f455e4bd2d9": "Load its .envrc for agents and setup scripts in this project and the worktrees T3 Code creates. It runs code on this machine.",
++  "5c64c318fd879825": "Approve change",
++  "f746b1e0bfb2ec4a": "Not now",
++  "3b2050fa2923a5b2": "Turn off for project",
+   "9ca929444b3489f2": "Skriptet togs bort, men dess kortkommando kunde inte tas bort eftersom behörigheten ändrades.",
+   "1b08419319fbf29f": "Skriptet sparades, men den här anslutningen kan inte längre ändra kortkommandon.",
+   "b165c3d7e9875f63": "Skriptet hittades inte.",
+@@ -8866,6 +8877,13 @@
+   "1c97d5a78ca1fdb6": "Worktree-submoduler",
+   "2c2b437431e4cd1d": "Inga leverantörer tillgängliga",
+   "561c7b30cbf698ec": "Senast vald",
++  "45ed5c748cf9280f": "direnv environment",
++  "f2f0be3f5a7d3eaa": "Load the project's .envrc for agents and worktree setup scripts. T3 Code asks before loading each new .envrc.",
++  "67dbb17daffb0535": "Reset direnv environment to default",
++  "f186d4f1f24efc34": "Load direnv environment",
++  "0b3e69e4f1271e7f": "Approve changes to an approved .envrc without asking. Only for repositories you fully control.",
++  "8e125dee1f9cd045": "Reset trust .envrc changes to default",
++  "ab3818ce8734cd66": "Trust .envrc changes",
+   "caceacc91363777f": "Söker i projektfiler…",
+   "5c05c11095f5fba8": "Indexerar projektfiler…",
+   "26b576ee6e175b29": "Inga matchande bildfiler.",
+@@ -11572,8 +11590,6 @@
+   "5b8b854de7ee6f4d": "installerade cli versioner nyare tillgänglig codex claude cursor grok fx kiro opencode",
+   "64f12530d55d2ad1": "återuppta pågående aktiv avbrutet arbete omstart starta om dator krasch skrivbord uppdatering automatiskt",
+   "214a98497c4ed05d": "caffeinate viloläge förhindra håll vaken ström laptop lock förhindra",
+-  "f186d4f1f24efc34": "Load direnv environment",
+-  "174e8ed57b585a50": "envrc nix flake devenv mise dev shell path tools environment variables agents",
+   "00469926c7027e2d": "balanserad prestanda batterisparläge avancerat git fetch leverantör hälsa uppdatera värd ström övervakning inaktiv policy",
+   "54e33e572cc71746": "standard arbetsyta läge utkast lokal worktree",
+   "b2ece956b72c4a48": "Submoduler",
+@@ -11649,6 +11665,8 @@
+   "39e4c844a9d56a1d": "pull request pr guidad granskning guide sammanfattning underhållare",
+   "f27f2e85e05f664c": "pull request pr guidad granskning guide inställningar smak prompt anpassad",
+   "01cff0c3cb858073": "kommandon skript konfiguration kör dev-server utcheckning worktree t3.json importera",
++  "e33f9dd525c5c0d1": "direnv envrc nix flake devenv mise shell environment variables path allow",
++  "98ad1fe5125bccd3": "direnv envrc approve allow changes automatically",
+   "c349ea1db3f9e9f1": "Miljöns ikon",
+   "18bd7981d6c50994": "dator symbol sidofält mac mini studio laptop skrivbord server moln vm",
+   "8ac2984f4e732091": "stäng av slå på inaktivera aktivera lokal server agenter bara fjärr starta om",
+diff --git a/apps/web/src/i18n/translations/zh.json b/apps/web/src/i18n/translations/zh.json
+index 3d790b378d..3feb698f97 100644
+--- a/apps/web/src/i18n/translations/zh.json
++++ b/apps/web/src/i18n/translations/zh.json
+@@ -4115,6 +4115,8 @@
+   "1b16346722b65812": "窗口剩余 {timeLeft}%",
+   "728c6cc1431e76c8": "{duration} 后重置 · {time}",
+   "e16b0b9b490c8bc7": "{label}：{value}",
++  "0d0556795bc6e65d": "On",
++  "b6b71b45e07c391b": "Off",
+   "ba67d0a9ff5dabf0": "复制管理员请求时剪贴板 API 不可用。",
+   "aef4bec20e799aab": "无法将管理员请求复制到剪贴板。",
+   "409185e3d9bbdb2c": "已复制申请",
+@@ -4773,6 +4775,15 @@
+   "5f7f823c458baa51": "重试即可重新获取仓库。",
+   "64a465553433ba09": "移除项目",
+   "403ea72058c9e917": "重试",
++  "7818ab79df7e454d": "Could not approve the .envrc",
++  "975d8b7ad2b8bc4d": "The project's .envrc changed since you approved it",
++  "451cedec648eb86b": "This project has a direnv environment",
++  "7ecef7e18ab712c7": "This .envrc is too large to review here. Run direnv allow in the project to approve it.",
++  "5cbd93ff48829838": "Agents keep the environment they started with until you approve the change.",
++  "ed0a2f455e4bd2d9": "Load its .envrc for agents and setup scripts in this project and the worktrees T3 Code creates. It runs code on this machine.",
++  "5c64c318fd879825": "Approve change",
++  "f746b1e0bfb2ec4a": "Not now",
++  "3b2050fa2923a5b2": "Turn off for project",
+   "9ca929444b3489f2": "脚本已删除，但由于权限变化，无法移除它的快捷键。",
+   "1b08419319fbf29f": "脚本已保存，但此连接已无法修改快捷键。",
+   "b165c3d7e9875f63": "找不到脚本。",
+@@ -8876,6 +8887,13 @@
+   "1c97d5a78ca1fdb6": "工作树子模块",
+   "2c2b437431e4cd1d": "没有可用的提供方",
+   "561c7b30cbf698ec": "上次选择",
++  "45ed5c748cf9280f": "direnv environment",
++  "f2f0be3f5a7d3eaa": "Load the project's .envrc for agents and worktree setup scripts. T3 Code asks before loading each new .envrc.",
++  "67dbb17daffb0535": "Reset direnv environment to default",
++  "f186d4f1f24efc34": "Load direnv environment",
++  "0b3e69e4f1271e7f": "Approve changes to an approved .envrc without asking. Only for repositories you fully control.",
++  "8e125dee1f9cd045": "Reset trust .envrc changes to default",
++  "ab3818ce8734cd66": "Trust .envrc changes",
+   "caceacc91363777f": "正在搜索项目文件…",
+   "5c05c11095f5fba8": "正在索引项目文件…",
+   "26b576ee6e175b29": "没有匹配的图片文件。",
+@@ -11588,8 +11606,6 @@
+   "5b8b854de7ee6f4d": "已安装 cli 版本 更新 可用 codex claude cursor grok fx kiro opencode",
+   "64f12530d55d2ad1": "恢复 运行中 活跃 中断 工作 重启 重新启动 机器 崩溃 桌面 更新 自动",
+   "214a98497c4ed05d": "caffeinate 睡眠 阻止 保持唤醒 电源 笔记本 盖子 抑制",
+-  "f186d4f1f24efc34": "Load direnv environment",
+-  "174e8ed57b585a50": "envrc nix flake devenv mise dev shell path tools environment variables agents",
+   "00469926c7027e2d": "平衡 性能 省电 高级 git 获取 提供方 健康 刷新 主机 电源 监控 空闲 策略",
+   "54e33e572cc71746": "默认 工作区 模式 草稿 本地 工作树",
+   "b2ece956b72c4a48": "子模块",
+@@ -11665,6 +11681,8 @@
+   "39e4c844a9d56a1d": "PR pr 引导式 审查 指南 简介 维护者",
+   "f27f2e85e05f664c": "PR pr 引导式 审查 指南 偏好 品味 提示词 自定义",
+   "01cff0c3cb858073": "命令 脚本 设置 运行 开发服务器 工作副本 工作树 t3.json 导入",
++  "e33f9dd525c5c0d1": "direnv envrc nix flake devenv mise shell environment variables path allow",
++  "98ad1fe5125bccd3": "direnv envrc approve allow changes automatically",
+   "c349ea1db3f9e9f1": "环境图标",
+   "18bd7981d6c50994": "机器 图标 侧边栏 mac mini studio 笔记本 台式机 服务器 云 vm",
+   "8ac2984f4e732091": "关闭 开启 禁用 启用 本地服务器 智能体 仅远程 重启",
 -- 
 2.56.0
 
