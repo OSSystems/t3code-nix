@@ -2,7 +2,6 @@
   lib,
   callPackage,
   chromium,
-  cloudflared,
   fetchFromGitHub,
   fetchPnpmDeps,
   pnpm_12,
@@ -107,11 +106,7 @@ in
   (oldAttrs: {
     # Shared Electron must register the packaged launcher so sign-in callbacks reopen T3 Code.
     buildCommand = oldAttrs.buildCommand + ''
-      # Use Nix's relay client instead of downloading a managed copy at runtime.
-      wrapProgram "$out/bin/t3" \
-        --set-default T3CODE_CLOUDFLARED_PATH "${lib.getExe cloudflared}"
       wrapProgram "$out/bin/t3code-desktop" \
-        --set T3CODE_DESKTOP_LAUNCHER_PATH "$out/bin/t3code-desktop" \
-        --set-default T3CODE_CLOUDFLARED_PATH "${lib.getExe cloudflared}"
+        --set T3CODE_DESKTOP_LAUNCHER_PATH "$out/bin/t3code-desktop"
     '';
   })
