@@ -1,17 +1,23 @@
 {
   lib,
+  autoPatchelfHook,
   callPackage,
   chromium,
-  cloudflared,
+  desktop-file-utils,
+  electron_44,
   fetchFromGitHub,
   fetchPnpmDeps,
+  makeDesktopItem,
   pnpm_12,
   rustPlatform,
+  stdenv,
   t3code,
+  vulkan-loader,
+  xdg-utils,
 }:
 
 let
-  version = "0.1.10";
+  version = "0.1.11";
 
   browser = chromium;
   browserProfileName = "t3-nix-${baseNameOf (toString browser.browser)}";
@@ -20,7 +26,7 @@ let
     owner = "pingdotgg";
     repo = "t3code";
     tag = "v${version}";
-    hash = "sha256-zhScbDGW+bD2T7++YRUPY/y83SGE2080LxcGw3Txrso=";
+    hash = "sha256-oI8gyTWFgtTmVK+0cVQaEcfO8EzxUUOW5s8JFG/z/U8=";
   };
 
   patches = [
@@ -38,6 +44,10 @@ let
     ./patches/0012-feat-server-Git-hooks-start-with-the-project-s-diren.patch
     ./patches/0013-feat-choose-the-flake-dev-shell-a-project-s-direnv-e.patch
   ];
+
+  captureHelpers = lib.genAttrs [ "kde" "hyprland" ] (
+    backend: callPackage ./capture-helper.nix { inherit backend src version; }
+  );
 
   unwrapped = t3code.unwrapped.overrideAttrs (
     finalAttrs: oldAttrs: {
@@ -58,6 +68,12 @@ let
         substituteInPlace apps/server/src/cli/browser.ts \
           --replace-fail 'const browser = yield* installedBrowser(baseDirPath);' \
                          'const browser = Option.some("${lib.getExe browser}");'
+
+        # Backport of https://github.com/NixOS/nixpkgs/pull/575673: shared Electron runs the app
+        # unpackaged, so the backend would otherwise start in the read-only store.
+        substituteInPlace apps/desktop/src/app/DesktopEnvironment.ts \
+          --replace-fail 'backendCwd: input.isPackaged ? homeDirectory : appRoot,' \
+                         'backendCwd: homeDirectory,'
       '';
 
       # Connect is disabled unless the public production identifiers are embedded at build time.
@@ -65,6 +81,72 @@ let
         cp .env.example .env
       ''
       + (oldAttrs.preBuild or "");
+
+      # Backport of https://github.com/NixOS/nixpkgs/pull/589125: voice input loads speech
+      # libraries that need libstdc++ and Vulkan, and window capture needs the GNOME extension
+      # and the KDE and Hyprland helpers.
+      nativeBuildInputs = oldAttrs.nativeBuildInputs ++ [ autoPatchelfHook ];
+      buildInputs = oldAttrs.buildInputs ++ [
+        stdenv.cc.cc.lib
+        vulkan-loader
+      ];
+      # The pnpm tree includes static, musl and foreign-platform binaries; patch only host modules.
+      dontAutoPatchelf = true;
+      # Speech backends load sibling libraries relative to their own directory.
+      autoPatchelfFlags = [ "--preserve-origin" ];
+
+      postInstall = (oldAttrs.postInstall or "") + ''
+        # Shared Electron uses the unpackaged resource paths in DesktopSnapShot.
+        while IFS= read -r file; do
+          install -Dm444 "apps/desktop/gnome-extension/$file" \
+            "$out/libexec/t3code/apps/desktop/gnome-extension/$file"
+        done < <(jq -r '.files[]' apps/desktop/gnome-extension/bundle.json)
+
+        # The setup code rejects symlinks, including for bundled helpers.
+        install -Dm755 ${lib.getExe captureHelpers.kde} \
+          "$out/libexec/t3code/native/kde-snap-shot/target/release/t3-kde-snap-shot"
+        install -Dm755 ${lib.getExe captureHelpers.hyprland} \
+          "$out/libexec/t3code/native/hyprland-snap-shot/target/release/t3-hyprland-snap-shot"
+        cp -r ${captureHelpers.hyprland}/share/t3code/hyprland-capture/protocols \
+          "$out/libexec/t3code/native/hyprland-snap-shot/"
+      '';
+
+      postFixup = ''
+        autoPatchelf \
+          "$out"/libexec/t3code/node_modules/.pnpm/node-pty@*/node_modules/node-pty/prebuilds/linux-${stdenv.hostPlatform.node.arch} \
+          "$out"/libexec/t3code/node_modules/.pnpm/@koromix+koffi-linux-${stdenv.hostPlatform.node.arch}@*/node_modules/@koromix/koffi-linux-${stdenv.hostPlatform.node.arch}/linux_${stdenv.hostPlatform.node.arch} \
+          "$out"/libexec/t3code/node_modules/.pnpm/@transcribe-cpp+linux-${stdenv.hostPlatform.node.arch}-cpu-vulkan@*/node_modules/@transcribe-cpp/linux-${stdenv.hostPlatform.node.arch}-cpu-vulkan
+      '';
+
+      doInstallCheck = stdenv.buildPlatform.canExecute stdenv.hostPlatform;
+      installCheckPhase = ''
+        runHook preInstallCheck
+
+        # The standalone Node CLI can mask missing C++ runtime dependencies; exercise local
+        # dictation with the same runtime as the desktop worker.
+        ELECTRON_RUN_AS_NODE=1 ${lib.getExe electron_44} --input-type=module -e '
+          const speech = await import(process.argv[1]);
+          if (!speech.getAvailableBackends().some(backend => backend.kind === "cpu")) {
+            throw new Error("Native speech CPU backend is unavailable");
+          }
+        ' "$out/libexec/t3code/apps/server/node_modules/transcribe-cpp/dist/index.js"
+
+        runHook postInstallCheck
+      '';
+
+      desktopItems = [
+        (makeDesktopItem {
+          name = "t3code";
+          desktopName = "T3 Code (Beta)";
+          comment = "Minimal web GUI for coding agents";
+          exec = "t3code-desktop %U";
+          terminal = false;
+          icon = "t3code";
+          startupWMClass = "com.t3tools.T3Code";
+          categories = [ "Development" ];
+          mimeTypes = [ "x-scheme-handler/t3code" ];
+        })
+      ];
 
       pnpmDeps = fetchPnpmDeps {
         pnpm = pnpm_12;
@@ -76,11 +158,11 @@ let
           pnpmWorkspaces
           ;
         fetcherVersion = 4;
-        hash = "sha256-9mQ6NLC/+l7p4Cs8TfF9BGgj4N9qnBC4mg4JDvGhKJo=";
+        hash = "sha256-u34YhuSMQj178JiRf/bf+VQYZfBUUH9UtCcJODPzBFQ=";
       };
 
       passthru = (oldAttrs.passthru or { }) // {
-        inherit browser;
+        inherit browser captureHelpers;
         tests = (oldAttrs.passthru.tests or { }) // {
           browser = callPackage ./browser-test.nix {
             inherit browser;
@@ -107,11 +189,14 @@ in
   (oldAttrs: {
     # Shared Electron must register the packaged launcher so sign-in callbacks reopen T3 Code.
     buildCommand = oldAttrs.buildCommand + ''
-      # Use Nix's relay client instead of downloading a managed copy at runtime.
-      wrapProgram "$out/bin/t3" \
-        --set-default T3CODE_CLOUDFLARED_PATH "${lib.getExe cloudflared}"
+      # The app registers itself for t3code:// sign-in links with these tools (NixOS/nixpkgs#555921).
       wrapProgram "$out/bin/t3code-desktop" \
         --set T3CODE_DESKTOP_LAUNCHER_PATH "$out/bin/t3code-desktop" \
-        --set-default T3CODE_CLOUDFLARED_PATH "${lib.getExe cloudflared}"
+        --prefix PATH : "${
+          lib.makeBinPath [
+            desktop-file-utils
+            xdg-utils
+          ]
+        }"
     '';
   })

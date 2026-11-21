@@ -1,4 +1,4 @@
-From 776d6dea17b7de85cde4faaf7231f23a7a9c20a5 Mon Sep 17 00:00:00 2001
+From f567a069d3d47ecebce36a6e3de1a999b5f9c039 Mon Sep 17 00:00:00 2001
 From: Otavio Salvador <otavio@ossystems.com.br>
 Date: Sun, 15 Nov 2026 03:24:14 -0300
 Subject: [PATCH 13/13] feat: choose the flake dev shell a project's direnv
@@ -14,7 +14,17 @@ deletes the other profiles beside the one it writes, which would evict the termi
 thread details panel shows the shell, and a changed choice reloads the environment on the next
 message.
 ---
- .../SettingsServerControlsRouteScreen.tsx     |  39 ++++-
+ .../SettingsServerControlsRouteScreen.tsx     |  41 ++++-
+ apps/mobile/src/i18n/translations/de.json     |   5 +-
+ apps/mobile/src/i18n/translations/en.json     |   5 +-
+ apps/mobile/src/i18n/translations/es.json     |   5 +-
+ apps/mobile/src/i18n/translations/fr.json     |   5 +-
+ apps/mobile/src/i18n/translations/ja.json     |   5 +-
+ apps/mobile/src/i18n/translations/ko.json     |   5 +-
+ apps/mobile/src/i18n/translations/pt-BR.json  |   5 +-
+ apps/mobile/src/i18n/translations/ru.json     |   5 +-
+ apps/mobile/src/i18n/translations/sv.json     |   5 +-
+ apps/mobile/src/i18n/translations/zh.json     |   5 +-
  apps/mobile/src/state/projectEnvironment.ts   |   1 +
  apps/server/src/auth/RpcAuthorization.ts      |   1 +
  .../src/observability/RpcInstrumentation.ts   |   1 +
@@ -26,22 +36,32 @@ message.
  .../src/provider/DirenvEnvironment.test.ts    |  72 ++++++++
  apps/server/src/provider/DirenvEnvironment.ts | 156 +++++++++++++++++-
  apps/server/src/ws.ts                         |   4 +
- .../components/chat/ThreadDirenvControl.tsx   |   8 +-
- .../settings/ProjectEnvironmentSettings.tsx   |  65 +++++++-
+ .../components/chat/ThreadDirenvControl.tsx   |   4 +-
+ .../settings/ProjectEnvironmentSettings.tsx   |  73 +++++++-
  .../src/components/settings/settingsSearch.ts |   7 +
+ apps/web/src/i18n/translations/de.json        |   9 +-
+ apps/web/src/i18n/translations/en.json        |   9 +-
+ apps/web/src/i18n/translations/es.json        |   9 +-
+ apps/web/src/i18n/translations/fr.json        |   9 +-
+ apps/web/src/i18n/translations/ja.json        |   9 +-
+ apps/web/src/i18n/translations/ko.json        |   9 +-
+ apps/web/src/i18n/translations/pt-BR.json     |   9 +-
+ apps/web/src/i18n/translations/ru.json        |   9 +-
+ apps/web/src/i18n/translations/sv.json        |   9 +-
+ apps/web/src/i18n/translations/zh.json        |   9 +-
  apps/web/src/state/projectEnvironment.ts      |   1 +
  docs/user/project-settings.md                 |   5 +
  .../src/state/projectEnvironment.ts           |   7 +
  packages/contracts/src/projectEnvironment.ts  |  15 ++
  packages/contracts/src/rpc.ts                 |   9 +
  packages/contracts/src/settings.ts            |   8 +
- 21 files changed, 448 insertions(+), 23 deletions(-)
+ 41 files changed, 573 insertions(+), 44 deletions(-)
 
 diff --git a/apps/mobile/src/features/settings/SettingsServerControlsRouteScreen.tsx b/apps/mobile/src/features/settings/SettingsServerControlsRouteScreen.tsx
-index 767c072107..a16a9e26ac 100644
+index d0166a266b..abd1d08e3d 100644
 --- a/apps/mobile/src/features/settings/SettingsServerControlsRouteScreen.tsx
 +++ b/apps/mobile/src/features/settings/SettingsServerControlsRouteScreen.tsx
-@@ -32,6 +32,8 @@ import { SourceControlSignInSection } from "./components/SourceControlSignInSect
+@@ -34,6 +34,8 @@ import { SourceControlProvidersSection } from "./components/SourceControlProvide
  import { SettingsProjectOverridesSection } from "./components/SettingsProjectOverridesSection";
  import { useSettingsEnvironmentFilter } from "./settings-environment-filter";
  import { useSettingsWriter } from "./useSettingsWriter";
@@ -58,7 +78,7 @@ index 767c072107..a16a9e26ac 100644
    ],
    maintenance: ["continueThreadsAfterServerUpdate"],
  };
-@@ -189,6 +192,17 @@ function ServerSettingsDetail(props: { readonly page: SettingsPage }) {
+@@ -199,6 +202,17 @@ function ServerSettingsDetail(props: { readonly page: SettingsPage }) {
      selectedTargets,
      projectSelected ? (selectedProject?.members.map((member) => member.project) ?? []) : null,
    );
@@ -76,7 +96,7 @@ index 767c072107..a16a9e26ac 100644
    const [pendingWrites, setPendingWrites] = useState(0);
    const writeInFlight = useRef(false);
    // Closing views can save after controls disable; queue those patches behind the pending write.
-@@ -211,6 +225,10 @@ function ServerSettingsDetail(props: { readonly page: SettingsPage }) {
+@@ -221,6 +235,10 @@ function ServerSettingsDetail(props: { readonly page: SettingsPage }) {
    const isMixed = (key: keyof ServerSettings) =>
      reference === null ||
      displayTargets.some((entry) => entry.settings[key] !== reference.settings[key]);
@@ -87,28 +107,30 @@ index 767c072107..a16a9e26ac 100644
    const writeSettings = useSettingsWriter();
    const write = (patch: ServerSettingsPatch) => {
      if (writeInFlight.current) {
-@@ -519,7 +537,7 @@ function ServerSettingsDetail(props: { readonly page: SettingsPage }) {
-                   <SettingsSwitchRow
+@@ -514,7 +532,7 @@ function ServerSettingsDetail(props: { readonly page: SettingsPage }) {
                      icon="terminal"
-                     label="Load direnv environment"
--                    subtitle="Load the project's .envrc for agents and worktree setup scripts. T3 Code asks before loading each new .envrc."
-+                    subtitle="Load the project's .envrc for agents, worktree setup scripts, and Git hooks. T3 Code asks before loading each new .envrc."
+                     label={gt("Load direnv environment")}
+                     subtitle={gt(
+-                      "Load the project's .envrc for agents and worktree setup scripts. T3 Code asks before loading each new .envrc.",
++                      "Load the project's .envrc for agents, worktree setup scripts, and Git hooks. T3 Code asks before loading each new .envrc.",
+                     )}
                      value={uniform("enableDirenvEnvironment")}
                      disabled={disabledFor("enableDirenvEnvironment")}
-                     onValueChange={(value) => write({ enableDirenvEnvironment: value })}
-@@ -533,6 +551,25 @@ function ServerSettingsDetail(props: { readonly page: SettingsPage }) {
+@@ -531,6 +549,27 @@ function ServerSettingsDetail(props: { readonly page: SettingsPage }) {
                      onValueChange={(value) => write({ trustDirenvChanges: value })}
                    />
                  </SettingsSection>
 +                {devShellOptions.length > 0 ? (
 +                  <SettingsSection
-+                    title="Development shell"
-+                    footer="The flake dev shell use flake loads in T3 Code. Your own terminal keeps the shell the .envrc names."
++                    title={gt("Development shell")}
++                    footer={gt(
++                      "The flake dev shell use flake loads in T3 Code. Your own terminal keeps the shell the .envrc names.",
++                    )}
 +                  >
 +                    {[null, ...devShellOptions].map((shell, index) => (
 +                      <SettingsChoiceRow
 +                        key={shell ?? "default"}
-+                        label={shell ?? "Default (from .envrc)"}
++                        label={shell ?? gt("Default (from .envrc)")}
 +                        selected={!isMixed("direnvDevShell") && devShell === shell}
 +                        separated={index > 0}
 +                        disabled={
@@ -122,6 +144,186 @@ index 767c072107..a16a9e26ac 100644
                  <BranchNamingSettings
                    key={targetsKey}
                    mode={uniform("branchNamingMode")}
+diff --git a/apps/mobile/src/i18n/translations/de.json b/apps/mobile/src/i18n/translations/de.json
+index f1dec052be..ab736a6212 100644
+--- a/apps/mobile/src/i18n/translations/de.json
++++ b/apps/mobile/src/i18n/translations/de.json
+@@ -3649,9 +3649,12 @@
+   "1c97d5a78ca1fdb6": "Worktree-Submodule",
+   "45ed5c748cf9280f": "direnv environment",
+   "f186d4f1f24efc34": "Load direnv environment",
+-  "f2f0be3f5a7d3eaa": "Load the project's .envrc for agents and worktree setup scripts. T3 Code asks before loading each new .envrc.",
++  "66e83fb46a4227ab": "Load the project's .envrc for agents, worktree setup scripts, and Git hooks. T3 Code asks before loading each new .envrc.",
+   "ab3818ce8734cd66": "Trust .envrc changes",
+   "0b3e69e4f1271e7f": "Approve changes to an approved .envrc without asking. Only for repositories you fully control.",
++  "2f72bb83e0b5cd92": "Development shell",
++  "9e46f95f68d37e2d": "The flake dev shell use flake loads in T3 Code. Your own terminal keeps the shell the .envrc names.",
++  "fd5631624b5e8872": "Default (from .envrc)",
+   "3da4debace63b2e5": "Server- und Anbieter-Updates",
+   "e48e93f44d89ea86": "Updates",
+   "5a3a2f227353f1d9": "Anbieter-Updates prüfen",
+diff --git a/apps/mobile/src/i18n/translations/en.json b/apps/mobile/src/i18n/translations/en.json
+index 3d5b86bbc9..adf77047a8 100644
+--- a/apps/mobile/src/i18n/translations/en.json
++++ b/apps/mobile/src/i18n/translations/en.json
+@@ -3650,9 +3650,12 @@
+   "1c97d5a78ca1fdb6": "Worktree submodules",
+   "45ed5c748cf9280f": "direnv environment",
+   "f186d4f1f24efc34": "Load direnv environment",
+-  "f2f0be3f5a7d3eaa": "Load the project's .envrc for agents and worktree setup scripts. T3 Code asks before loading each new .envrc.",
++  "66e83fb46a4227ab": "Load the project's .envrc for agents, worktree setup scripts, and Git hooks. T3 Code asks before loading each new .envrc.",
+   "ab3818ce8734cd66": "Trust .envrc changes",
+   "0b3e69e4f1271e7f": "Approve changes to an approved .envrc without asking. Only for repositories you fully control.",
++  "2f72bb83e0b5cd92": "Development shell",
++  "9e46f95f68d37e2d": "The flake dev shell use flake loads in T3 Code. Your own terminal keeps the shell the .envrc names.",
++  "fd5631624b5e8872": "Default (from .envrc)",
+   "3da4debace63b2e5": "Server and provider updates",
+   "e48e93f44d89ea86": "Updates",
+   "5a3a2f227353f1d9": "Check provider updates",
+diff --git a/apps/mobile/src/i18n/translations/es.json b/apps/mobile/src/i18n/translations/es.json
+index 4604fdb6c3..56101cbe65 100644
+--- a/apps/mobile/src/i18n/translations/es.json
++++ b/apps/mobile/src/i18n/translations/es.json
+@@ -3644,9 +3644,12 @@
+   "1c97d5a78ca1fdb6": "Submódulos de worktrees",
+   "45ed5c748cf9280f": "direnv environment",
+   "f186d4f1f24efc34": "Load direnv environment",
+-  "f2f0be3f5a7d3eaa": "Load the project's .envrc for agents and worktree setup scripts. T3 Code asks before loading each new .envrc.",
++  "66e83fb46a4227ab": "Load the project's .envrc for agents, worktree setup scripts, and Git hooks. T3 Code asks before loading each new .envrc.",
+   "ab3818ce8734cd66": "Trust .envrc changes",
+   "0b3e69e4f1271e7f": "Approve changes to an approved .envrc without asking. Only for repositories you fully control.",
++  "2f72bb83e0b5cd92": "Development shell",
++  "9e46f95f68d37e2d": "The flake dev shell use flake loads in T3 Code. Your own terminal keeps the shell the .envrc names.",
++  "fd5631624b5e8872": "Default (from .envrc)",
+   "3da4debace63b2e5": "Actualizaciones del servidor y los proveedores",
+   "e48e93f44d89ea86": "Actualizaciones",
+   "5a3a2f227353f1d9": "Buscar actualizaciones de proveedores",
+diff --git a/apps/mobile/src/i18n/translations/fr.json b/apps/mobile/src/i18n/translations/fr.json
+index d57a3b10ba..24a65eb2f2 100644
+--- a/apps/mobile/src/i18n/translations/fr.json
++++ b/apps/mobile/src/i18n/translations/fr.json
+@@ -3644,9 +3644,12 @@
+   "1c97d5a78ca1fdb6": "Sous-modules des worktrees",
+   "45ed5c748cf9280f": "direnv environment",
+   "f186d4f1f24efc34": "Load direnv environment",
+-  "f2f0be3f5a7d3eaa": "Load the project's .envrc for agents and worktree setup scripts. T3 Code asks before loading each new .envrc.",
++  "66e83fb46a4227ab": "Load the project's .envrc for agents, worktree setup scripts, and Git hooks. T3 Code asks before loading each new .envrc.",
+   "ab3818ce8734cd66": "Trust .envrc changes",
+   "0b3e69e4f1271e7f": "Approve changes to an approved .envrc without asking. Only for repositories you fully control.",
++  "2f72bb83e0b5cd92": "Development shell",
++  "9e46f95f68d37e2d": "The flake dev shell use flake loads in T3 Code. Your own terminal keeps the shell the .envrc names.",
++  "fd5631624b5e8872": "Default (from .envrc)",
+   "3da4debace63b2e5": "Mises à jour du serveur et des fournisseurs",
+   "e48e93f44d89ea86": "Mises à jour",
+   "5a3a2f227353f1d9": "Vérifier les mises à jour des fournisseurs",
+diff --git a/apps/mobile/src/i18n/translations/ja.json b/apps/mobile/src/i18n/translations/ja.json
+index 67daca9f7d..ea2d79184a 100644
+--- a/apps/mobile/src/i18n/translations/ja.json
++++ b/apps/mobile/src/i18n/translations/ja.json
+@@ -3641,9 +3641,12 @@
+   "1c97d5a78ca1fdb6": "ワークツリーのサブモジュール",
+   "45ed5c748cf9280f": "direnv environment",
+   "f186d4f1f24efc34": "Load direnv environment",
+-  "f2f0be3f5a7d3eaa": "Load the project's .envrc for agents and worktree setup scripts. T3 Code asks before loading each new .envrc.",
++  "66e83fb46a4227ab": "Load the project's .envrc for agents, worktree setup scripts, and Git hooks. T3 Code asks before loading each new .envrc.",
+   "ab3818ce8734cd66": "Trust .envrc changes",
+   "0b3e69e4f1271e7f": "Approve changes to an approved .envrc without asking. Only for repositories you fully control.",
++  "2f72bb83e0b5cd92": "Development shell",
++  "9e46f95f68d37e2d": "The flake dev shell use flake loads in T3 Code. Your own terminal keeps the shell the .envrc names.",
++  "fd5631624b5e8872": "Default (from .envrc)",
+   "3da4debace63b2e5": "サーバーとプロバイダーの更新",
+   "e48e93f44d89ea86": "更新",
+   "5a3a2f227353f1d9": "プロバイダーの更新を確認",
+diff --git a/apps/mobile/src/i18n/translations/ko.json b/apps/mobile/src/i18n/translations/ko.json
+index aef21f93a3..c7553e1fd9 100644
+--- a/apps/mobile/src/i18n/translations/ko.json
++++ b/apps/mobile/src/i18n/translations/ko.json
+@@ -3645,9 +3645,12 @@
+   "1c97d5a78ca1fdb6": "워크트리 하위 모듈",
+   "45ed5c748cf9280f": "direnv environment",
+   "f186d4f1f24efc34": "Load direnv environment",
+-  "f2f0be3f5a7d3eaa": "Load the project's .envrc for agents and worktree setup scripts. T3 Code asks before loading each new .envrc.",
++  "66e83fb46a4227ab": "Load the project's .envrc for agents, worktree setup scripts, and Git hooks. T3 Code asks before loading each new .envrc.",
+   "ab3818ce8734cd66": "Trust .envrc changes",
+   "0b3e69e4f1271e7f": "Approve changes to an approved .envrc without asking. Only for repositories you fully control.",
++  "2f72bb83e0b5cd92": "Development shell",
++  "9e46f95f68d37e2d": "The flake dev shell use flake loads in T3 Code. Your own terminal keeps the shell the .envrc names.",
++  "fd5631624b5e8872": "Default (from .envrc)",
+   "3da4debace63b2e5": "서버 및 제공자 업데이트",
+   "e48e93f44d89ea86": "업데이트",
+   "5a3a2f227353f1d9": "제공자 업데이트 확인",
+diff --git a/apps/mobile/src/i18n/translations/pt-BR.json b/apps/mobile/src/i18n/translations/pt-BR.json
+index 9c5f99e07f..eedfcd9f99 100644
+--- a/apps/mobile/src/i18n/translations/pt-BR.json
++++ b/apps/mobile/src/i18n/translations/pt-BR.json
+@@ -3644,9 +3644,12 @@
+   "1c97d5a78ca1fdb6": "Submódulos do worktree",
+   "45ed5c748cf9280f": "direnv environment",
+   "f186d4f1f24efc34": "Load direnv environment",
+-  "f2f0be3f5a7d3eaa": "Load the project's .envrc for agents and worktree setup scripts. T3 Code asks before loading each new .envrc.",
++  "66e83fb46a4227ab": "Load the project's .envrc for agents, worktree setup scripts, and Git hooks. T3 Code asks before loading each new .envrc.",
+   "ab3818ce8734cd66": "Trust .envrc changes",
+   "0b3e69e4f1271e7f": "Approve changes to an approved .envrc without asking. Only for repositories you fully control.",
++  "2f72bb83e0b5cd92": "Development shell",
++  "9e46f95f68d37e2d": "The flake dev shell use flake loads in T3 Code. Your own terminal keeps the shell the .envrc names.",
++  "fd5631624b5e8872": "Default (from .envrc)",
+   "3da4debace63b2e5": "Atualizações do servidor e dos provedores",
+   "e48e93f44d89ea86": "Atualizações",
+   "5a3a2f227353f1d9": "Verificar atualizações dos provedores",
+diff --git a/apps/mobile/src/i18n/translations/ru.json b/apps/mobile/src/i18n/translations/ru.json
+index 767e1bc3dc..fdfe36ff55 100644
+--- a/apps/mobile/src/i18n/translations/ru.json
++++ b/apps/mobile/src/i18n/translations/ru.json
+@@ -3698,9 +3698,12 @@
+   "1c97d5a78ca1fdb6": "Подмодули рабочих деревьев",
+   "45ed5c748cf9280f": "direnv environment",
+   "f186d4f1f24efc34": "Load direnv environment",
+-  "f2f0be3f5a7d3eaa": "Load the project's .envrc for agents and worktree setup scripts. T3 Code asks before loading each new .envrc.",
++  "66e83fb46a4227ab": "Load the project's .envrc for agents, worktree setup scripts, and Git hooks. T3 Code asks before loading each new .envrc.",
+   "ab3818ce8734cd66": "Trust .envrc changes",
+   "0b3e69e4f1271e7f": "Approve changes to an approved .envrc without asking. Only for repositories you fully control.",
++  "2f72bb83e0b5cd92": "Development shell",
++  "9e46f95f68d37e2d": "The flake dev shell use flake loads in T3 Code. Your own terminal keeps the shell the .envrc names.",
++  "fd5631624b5e8872": "Default (from .envrc)",
+   "3da4debace63b2e5": "Обновления сервера и провайдеров",
+   "e48e93f44d89ea86": "Обновления",
+   "5a3a2f227353f1d9": "Проверять обновления провайдеров",
+diff --git a/apps/mobile/src/i18n/translations/sv.json b/apps/mobile/src/i18n/translations/sv.json
+index 06eae64dbf..9548830c54 100644
+--- a/apps/mobile/src/i18n/translations/sv.json
++++ b/apps/mobile/src/i18n/translations/sv.json
+@@ -3650,9 +3650,12 @@
+   "1c97d5a78ca1fdb6": "Worktree-submoduler",
+   "45ed5c748cf9280f": "direnv environment",
+   "f186d4f1f24efc34": "Load direnv environment",
+-  "f2f0be3f5a7d3eaa": "Load the project's .envrc for agents and worktree setup scripts. T3 Code asks before loading each new .envrc.",
++  "66e83fb46a4227ab": "Load the project's .envrc for agents, worktree setup scripts, and Git hooks. T3 Code asks before loading each new .envrc.",
+   "ab3818ce8734cd66": "Trust .envrc changes",
+   "0b3e69e4f1271e7f": "Approve changes to an approved .envrc without asking. Only for repositories you fully control.",
++  "2f72bb83e0b5cd92": "Development shell",
++  "9e46f95f68d37e2d": "The flake dev shell use flake loads in T3 Code. Your own terminal keeps the shell the .envrc names.",
++  "fd5631624b5e8872": "Default (from .envrc)",
+   "3da4debace63b2e5": "Server- och leverantörsuppdateringar",
+   "e48e93f44d89ea86": "Uppdateringar",
+   "5a3a2f227353f1d9": "Sök efter leverantörsuppdateringar",
+diff --git a/apps/mobile/src/i18n/translations/zh.json b/apps/mobile/src/i18n/translations/zh.json
+index d8525e2e4d..b91b10fd22 100644
+--- a/apps/mobile/src/i18n/translations/zh.json
++++ b/apps/mobile/src/i18n/translations/zh.json
+@@ -3646,9 +3646,12 @@
+   "1c97d5a78ca1fdb6": "工作树子模块",
+   "45ed5c748cf9280f": "direnv environment",
+   "f186d4f1f24efc34": "Load direnv environment",
+-  "f2f0be3f5a7d3eaa": "Load the project's .envrc for agents and worktree setup scripts. T3 Code asks before loading each new .envrc.",
++  "66e83fb46a4227ab": "Load the project's .envrc for agents, worktree setup scripts, and Git hooks. T3 Code asks before loading each new .envrc.",
+   "ab3818ce8734cd66": "Trust .envrc changes",
+   "0b3e69e4f1271e7f": "Approve changes to an approved .envrc without asking. Only for repositories you fully control.",
++  "2f72bb83e0b5cd92": "Development shell",
++  "9e46f95f68d37e2d": "The flake dev shell use flake loads in T3 Code. Your own terminal keeps the shell the .envrc names.",
++  "fd5631624b5e8872": "Default (from .envrc)",
+   "3da4debace63b2e5": "服务器和提供方更新",
+   "e48e93f44d89ea86": "更新",
+   "5a3a2f227353f1d9": "检查提供方更新",
 diff --git a/apps/mobile/src/state/projectEnvironment.ts b/apps/mobile/src/state/projectEnvironment.ts
 index 5c3ad27ae0..afa94a0333 100644
 --- a/apps/mobile/src/state/projectEnvironment.ts
@@ -135,10 +337,10 @@ index 5c3ad27ae0..afa94a0333 100644
          run?.runId,
          run?.status,
 diff --git a/apps/server/src/auth/RpcAuthorization.ts b/apps/server/src/auth/RpcAuthorization.ts
-index cd99e9b94b..ada8c3c7ff 100644
+index 21c534a1ac..57a9764bcd 100644
 --- a/apps/server/src/auth/RpcAuthorization.ts
 +++ b/apps/server/src/auth/RpcAuthorization.ts
-@@ -178,6 +178,7 @@ export const RPC_REQUIRED_SCOPES = {
+@@ -191,6 +191,7 @@ export const RPC_REQUIRED_SCOPES = {
    [WS_METHODS.subscribeWorktreeSetup]: AuthOrchestrationReadScope,
    [WS_METHODS.worktreeSetupCancel]: AuthOrchestrationOperateScope,
    [WS_METHODS.projectEnvironmentStatus]: AuthOrchestrationReadScope,
@@ -147,10 +349,10 @@ index cd99e9b94b..ada8c3c7ff 100644
    [WS_METHODS.subscribeResourceTelemetry]: AuthDiagnosticsReadScope,
    [WS_METHODS.vcsRefreshStatus]: AuthOrchestrationReadScope,
 diff --git a/apps/server/src/observability/RpcInstrumentation.ts b/apps/server/src/observability/RpcInstrumentation.ts
-index bcad730962..903eb41c9e 100644
+index ab15bc39ce..caa17f8600 100644
 --- a/apps/server/src/observability/RpcInstrumentation.ts
 +++ b/apps/server/src/observability/RpcInstrumentation.ts
-@@ -164,6 +164,7 @@ const RPC_AGGREGATES = {
+@@ -178,6 +178,7 @@ const RPC_AGGREGATES = {
    [WS_METHODS.projectsSearchEntries]: "workspace",
    [WS_METHODS.projectsWriteFile]: "workspace",
    [WS_METHODS.projectEnvironmentStatus]: "workspace",
@@ -159,10 +361,10 @@ index bcad730962..903eb41c9e 100644
    [WS_METHODS.projectsEnsureScratch]: "orchestration",
    [WS_METHODS.projectsCreateNew]: "orchestration",
 diff --git a/apps/server/src/orchestration-v2/ProviderSessionManager.test.ts b/apps/server/src/orchestration-v2/ProviderSessionManager.test.ts
-index 1b72a93a82..5e7e086a33 100644
+index 664fbec61a..02b738ecb8 100644
 --- a/apps/server/src/orchestration-v2/ProviderSessionManager.test.ts
 +++ b/apps/server/src/orchestration-v2/ProviderSessionManager.test.ts
-@@ -5810,6 +5810,7 @@ function runDirenvScenario(
+@@ -5857,6 +5857,7 @@ function runDirenvScenario(
              ]);
            }),
          allow: () => Effect.succeed({ _tag: "Allowed" }),
@@ -170,7 +372,7 @@ index 1b72a93a82..5e7e086a33 100644
          inspect: () => Effect.succeedNone,
        }),
      ).pipe(
-@@ -5822,6 +5823,8 @@ function runDirenvScenario(
+@@ -5869,6 +5870,8 @@ function runDirenvScenario(
              prepare: () => Effect.succeed(true),
              enabled: () => Effect.succeed(true),
              commandEnvironment: () => Effect.die("unused"),
@@ -180,10 +382,10 @@ index 1b72a93a82..5e7e086a33 100644
          ),
        ),
 diff --git a/apps/server/src/orchestration-v2/ProviderSessionManager.ts b/apps/server/src/orchestration-v2/ProviderSessionManager.ts
-index b8bb6685d2..8899c2e3a6 100644
+index f322c0ff95..de4475bc88 100644
 --- a/apps/server/src/orchestration-v2/ProviderSessionManager.ts
 +++ b/apps/server/src/orchestration-v2/ProviderSessionManager.ts
-@@ -520,17 +520,19 @@ export const layerWithOptions = (
+@@ -532,17 +532,19 @@ export const layerWithOptions = (
        const projectEnvironment = yield* Effect.serviceOption(
          ProjectEnvironmentService.ProjectEnvironmentService,
        );
@@ -207,7 +409,7 @@ index b8bb6685d2..8899c2e3a6 100644
          ),
        );
        /** The failure each thread was last told about, so restarts do not repeat it. */
-@@ -564,8 +566,10 @@ export const layerWithOptions = (
+@@ -576,8 +578,10 @@ export const layerWithOptions = (
          DirenvEnvironment.setThreadDirenvEnvironment(threadId, preloaded);
          if (cwd === null) return null;
          if (preloaded !== undefined) return { cwd, diff: preloaded } as SessionDirenvEnvironment;
@@ -220,7 +422,7 @@ index b8bb6685d2..8899c2e3a6 100644
          yield* Effect.annotateCurrentSpan({ "provider.direnv.result": result._tag });
          recordDirenvResult(threadId, result);
          const diff = result._tag === "Loaded" ? result.diff : undefined;
-@@ -581,10 +585,11 @@ export const layerWithOptions = (
+@@ -593,10 +597,11 @@ export const layerWithOptions = (
          function* (entry: LiveSessionEntry, threadId: ThreadId, cwd: string | null) {
            const loaded = entry.direnv?.diff;
            if (Option.isNone(direnv) || cwd === null) return { restart: false } as const;
@@ -236,10 +438,10 @@ index b8bb6685d2..8899c2e3a6 100644
            recordDirenvResult(threadId, result);
            switch (result._tag) {
 diff --git a/apps/server/src/orchestration-v2/ThreadLaunchService.test.ts b/apps/server/src/orchestration-v2/ThreadLaunchService.test.ts
-index cc777202ba..2eb689d3a3 100644
+index c4e6b8a417..c35c66e3c4 100644
 --- a/apps/server/src/orchestration-v2/ThreadLaunchService.test.ts
 +++ b/apps/server/src/orchestration-v2/ThreadLaunchService.test.ts
-@@ -2701,6 +2701,7 @@ it.effect.each([
+@@ -2862,6 +2862,7 @@ it.effect.each([
          Layer.mock(ProjectEnvironmentService.ProjectEnvironmentService)({
            enabled: () => Effect.succeed(true),
            prepare: () => Effect.succeed(true),
@@ -248,10 +450,10 @@ index cc777202ba..2eb689d3a3 100644
          Layer.mock(DirenvEnvironment.DirenvEnvironment)({ load: () => Effect.succeed(row.load) }),
        ),
 diff --git a/apps/server/src/orchestration-v2/ThreadLaunchService.ts b/apps/server/src/orchestration-v2/ThreadLaunchService.ts
-index 8d9d5318ff..fc86f1793f 100644
+index dc7e680466..85f22fbc5a 100644
 --- a/apps/server/src/orchestration-v2/ThreadLaunchService.ts
 +++ b/apps/server/src/orchestration-v2/ThreadLaunchService.ts
-@@ -293,7 +293,11 @@ const make = Effect.gen(function* () {
+@@ -311,7 +311,11 @@ const make = Effect.gen(function* () {
        yield* setupTracker.stageStatus(threadId, "environment", "skipped", "not approved");
        return undefined;
      }
@@ -693,10 +895,10 @@ index 88ecd75fb5..670b0d6d1f 100644
  
  export const layer = Layer.effect(DirenvEnvironment, make());
 diff --git a/apps/server/src/ws.ts b/apps/server/src/ws.ts
-index 1ff03e3ade..5c8cab58dd 100644
+index 1075c8bff1..268b348e8e 100644
 --- a/apps/server/src/ws.ts
 +++ b/apps/server/src/ws.ts
-@@ -3130,6 +3130,10 @@ export const layerWsRpc = (
+@@ -3173,6 +3173,10 @@ export const layerWsRpc = (
                  enabled: false,
                } as const)
              : projectEnvironment.value.status(input),
@@ -708,30 +910,28 @@ index 1ff03e3ade..5c8cab58dd 100644
            Option.isNone(projectEnvironment)
              ? Effect.succeed({
 diff --git a/apps/web/src/components/chat/ThreadDirenvControl.tsx b/apps/web/src/components/chat/ThreadDirenvControl.tsx
-index d8afa19447..6edc0deeeb 100644
+index 997d04907d..d444df62af 100644
 --- a/apps/web/src/components/chat/ThreadDirenvControl.tsx
 +++ b/apps/web/src/components/chat/ThreadDirenvControl.tsx
-@@ -55,7 +55,13 @@ export function ThreadDirenvControl(props: {
-           indicator === "off" && "text-muted-foreground",
+@@ -58,7 +58,9 @@ export function ThreadDirenvControl(props: {
          )}
        >
--        {indicator === "on" ? "On" : indicator === "approval" ? "Needs approval" : "Off"}
-+        {indicator === "on"
+         {indicator === "on"
+-          ? gt("On", { $context: "direnv environment status" })
 +          ? query.data?.devShell
-+            ? `On · ${query.data.devShell}`
-+            : "On"
-+          : indicator === "approval"
-+            ? "Needs approval"
-+            : "Off"}
-       </span>
-     </ThreadDetailsControl>
-   );
++            ? gt("On · {devShell}", { devShell: query.data.devShell })
++            : gt("On", { $context: "direnv environment status" })
+           : indicator === "approval"
+             ? gt("Needs approval")
+             : gt("Off", { $context: "direnv environment status" })}
 diff --git a/apps/web/src/components/settings/ProjectEnvironmentSettings.tsx b/apps/web/src/components/settings/ProjectEnvironmentSettings.tsx
-index 5c611a8ad6..5d080ddd62 100644
+index fed3afe375..5fa86bbfc6 100644
 --- a/apps/web/src/components/settings/ProjectEnvironmentSettings.tsx
 +++ b/apps/web/src/components/settings/ProjectEnvironmentSettings.tsx
-@@ -1,20 +1,40 @@
+@@ -1,16 +1,36 @@
  import { DEFAULT_UNIFIED_SETTINGS } from "@t3tools/contracts/settings";
+-import { useGT } from "gt-react";
++import { T, useGT } from "gt-react";
  
 +import { projectEnvironment } from "../../state/projectEnvironment";
 +import { useEnvironmentQuery } from "../../state/query";
@@ -739,12 +939,14 @@ index 5c611a8ad6..5d080ddd62 100644
  import { ScopedSwitch } from "./ScopedSwitch";
 +import { useSettingsScope } from "./SettingsScopeContext";
  import { SettingResetButton, SettingsRow, SettingsSection } from "./settingsLayout";
- import { searchableSetting } from "./settingsSearch";
+ import { useSearchableSetting } from "./settingsSearch";
  import { useScopedSettings, useUpdateScopedSettings } from "./useScopedSettings";
  
 +const DEFAULT_DEV_SHELL = "";
 +
  export function ProjectEnvironmentSettings() {
+   const gt = useGT();
+   const searchableSetting = useSearchableSetting();
    const settings = useScopedSettings();
    const updateSettings = useUpdateScopedSettings();
 +  const { targets } = useSettingsScope();
@@ -762,17 +964,18 @@ index 5c611a8ad6..5d080ddd62 100644
 +  const devShellOptions =
 +    devShell !== null && !devShells.includes(devShell) ? [...devShells, devShell] : devShells;
    return (
-     <SettingsSection id="project-environment" title="direnv environment">
+     <SettingsSection id="project-environment" title={gt("direnv environment")}>
        <SettingsRow
-         serverScoped
+@@ -18,7 +38,7 @@ export function ProjectEnvironmentSettings() {
          settingKeys={["enableDirenvEnvironment"]}
          {...searchableSetting("project-direnv")}
--        description="Load the project's .envrc for agents and worktree setup scripts. T3 Code asks before loading each new .envrc."
-+        description="Load the project's .envrc for agents, worktree setup scripts, and Git hooks. T3 Code asks before loading each new .envrc."
+         description={gt(
+-          "Load the project's .envrc for agents and worktree setup scripts. T3 Code asks before loading each new .envrc.",
++          "Load the project's .envrc for agents, worktree setup scripts, and Git hooks. T3 Code asks before loading each new .envrc.",
+         )}
          resetAction={
            settings.enableDirenvEnvironment !== DEFAULT_UNIFIED_SETTINGS.enableDirenvEnvironment ? (
-             <SettingResetButton
-@@ -63,6 +83,49 @@ export function ProjectEnvironmentSettings() {
+@@ -70,6 +90,55 @@ export function ProjectEnvironmentSettings() {
            />
          }
        />
@@ -781,11 +984,13 @@ index 5c611a8ad6..5d080ddd62 100644
 +          serverScoped
 +          settingKeys={["direnvDevShell"]}
 +          {...searchableSetting("project-direnv-dev-shell")}
-+          description="The flake dev shell use flake loads in T3 Code. Your own terminal keeps the shell the .envrc names."
++          description={gt(
++            "The flake dev shell use flake loads in T3 Code. Your own terminal keeps the shell the .envrc names.",
++          )}
 +          resetAction={
 +            devShell !== null ? (
 +              <SettingResetButton
-+                label="development shell"
++                ariaLabel={gt("Reset development shell to default")}
 +                onClick={() => updateSettings({ direnvDevShell: null })}
 +              />
 +            ) : null
@@ -800,15 +1005,19 @@ index 5c611a8ad6..5d080ddd62 100644
 +                })
 +              }
 +            >
-+              <SelectTrigger size="sm" aria-label="Development shell">
++              <SelectTrigger size="sm" aria-label={gt("Development shell")}>
 +                <SelectValue>
 +                  {(value: string | null) =>
-+                    value === null || value === DEFAULT_DEV_SHELL ? "Default" : value
++                    value === null || value === DEFAULT_DEV_SHELL
++                      ? gt("Default", { $context: "default flake dev shell" })
++                      : value
 +                  }
 +                </SelectValue>
 +              </SelectTrigger>
 +              <SelectPopup align="end" alignItemWithTrigger={false}>
-+                <SelectItem value={DEFAULT_DEV_SHELL}>Default (from .envrc)</SelectItem>
++                <SelectItem value={DEFAULT_DEV_SHELL}>
++                  <T>Default (from .envrc)</T>
++                </SelectItem>
 +                {devShellOptions.map((shell) => (
 +                  <SelectItem key={shell} value={shell}>
 +                    {shell}
@@ -823,23 +1032,413 @@ index 5c611a8ad6..5d080ddd62 100644
    );
  }
 diff --git a/apps/web/src/components/settings/settingsSearch.ts b/apps/web/src/components/settings/settingsSearch.ts
-index 6298461d86..793bc5ba34 100644
+index 5e731886b8..59bbc4f01a 100644
 --- a/apps/web/src/components/settings/settingsSearch.ts
 +++ b/apps/web/src/components/settings/settingsSearch.ts
-@@ -1249,6 +1249,13 @@ export const SETTINGS_SEARCH_ITEMS = [
+@@ -1320,6 +1320,13 @@ export const SETTINGS_SEARCH_ITEMS = [
      scope: "project-defaults",
-     searchTerms: ["direnv envrc approve allow changes automatically"],
+     searchTerms: [msg("direnv envrc approve allow changes automatically")],
    },
 +  {
 +    id: "project-direnv-dev-shell",
-+    title: "Development shell",
++    title: msg("Development shell"),
 +    to: "/settings/worktrees",
 +    scope: "project-defaults",
-+    searchTerms: ["direnv nix flake devshell dev shell use flake select"],
++    searchTerms: [msg("direnv nix flake devshell dev shell use flake select")],
 +  },
    {
      id: "environment-icon",
-     title: "Environment icon",
+     title: msg("Environment icon"),
+diff --git a/apps/web/src/i18n/translations/de.json b/apps/web/src/i18n/translations/de.json
+index 05b8de8ad4..bb2b622d71 100644
+--- a/apps/web/src/i18n/translations/de.json
++++ b/apps/web/src/i18n/translations/de.json
+@@ -4111,6 +4111,7 @@
+   "1b16346722b65812": "{timeLeft} % des Zeitfensters übrig",
+   "728c6cc1431e76c8": "Wird in {duration} zurückgesetzt · {time}",
+   "e16b0b9b490c8bc7": "{label}: {value}",
++  "715118b0e1636ecd": "On · {devShell}",
+   "0d0556795bc6e65d": "On",
+   "b6b71b45e07c391b": "Off",
+   "ba67d0a9ff5dabf0": "Die Zwischenablage-API ist beim Kopieren der Admin-Anfrage nicht verfügbar.",
+@@ -8872,12 +8873,17 @@
+   "2c2b437431e4cd1d": "Keine Anbieter verfügbar",
+   "561c7b30cbf698ec": "Zuletzt ausgewählt",
+   "45ed5c748cf9280f": "direnv environment",
+-  "f2f0be3f5a7d3eaa": "Load the project's .envrc for agents and worktree setup scripts. T3 Code asks before loading each new .envrc.",
++  "66e83fb46a4227ab": "Load the project's .envrc for agents, worktree setup scripts, and Git hooks. T3 Code asks before loading each new .envrc.",
+   "67dbb17daffb0535": "Reset direnv environment to default",
+   "f186d4f1f24efc34": "Load direnv environment",
+   "0b3e69e4f1271e7f": "Approve changes to an approved .envrc without asking. Only for repositories you fully control.",
+   "8e125dee1f9cd045": "Reset trust .envrc changes to default",
+   "ab3818ce8734cd66": "Trust .envrc changes",
++  "9e46f95f68d37e2d": "The flake dev shell use flake loads in T3 Code. Your own terminal keeps the shell the .envrc names.",
++  "ea2ccc53851a2ae6": "Reset development shell to default",
++  "2f72bb83e0b5cd92": "Development shell",
++  "ea4d204dbc76ebb0": "Default",
++  "823b6adbd14839ae": "Default (from .envrc)",
+   "caceacc91363777f": "Projektdateien werden durchsucht…",
+   "5c05c11095f5fba8": "Projektdateien werden indiziert…",
+   "26b576ee6e175b29": "Keine passenden Bilddateien.",
+@@ -11661,6 +11667,7 @@
+   "01cff0c3cb858073": "befehle skripte setup ausführen dev-server checkout worktree t3.json import",
+   "e33f9dd525c5c0d1": "direnv envrc nix flake devenv mise shell environment variables path allow",
+   "98ad1fe5125bccd3": "direnv envrc approve allow changes automatically",
++  "59ad6a12a111e9ce": "direnv nix flake devshell dev shell use flake select",
+   "c349ea1db3f9e9f1": "Umgebungssymbol",
+   "18bd7981d6c50994": "rechner symbol seitenleiste mac mini studio laptop desktop server cloud vm",
+   "8ac2984f4e732091": "ausschalten einschalten deaktivieren aktivieren lokaler server agenten nur remote neustart",
+diff --git a/apps/web/src/i18n/translations/en.json b/apps/web/src/i18n/translations/en.json
+index 5650aeac4e..35fb383629 100644
+--- a/apps/web/src/i18n/translations/en.json
++++ b/apps/web/src/i18n/translations/en.json
+@@ -4110,6 +4110,7 @@
+   "1b16346722b65812": "{timeLeft}% of the window left",
+   "728c6cc1431e76c8": "Resets in {duration} · {time}",
+   "e16b0b9b490c8bc7": "{label}: {value}",
++  "715118b0e1636ecd": "On · {devShell}",
+   "0d0556795bc6e65d": "On",
+   "b6b71b45e07c391b": "Off",
+   "ba67d0a9ff5dabf0": "Clipboard API is unavailable while copying admin request.",
+@@ -8880,12 +8881,17 @@
+   "2c2b437431e4cd1d": "No providers available",
+   "561c7b30cbf698ec": "Last selected",
+   "45ed5c748cf9280f": "direnv environment",
+-  "f2f0be3f5a7d3eaa": "Load the project's .envrc for agents and worktree setup scripts. T3 Code asks before loading each new .envrc.",
++  "66e83fb46a4227ab": "Load the project's .envrc for agents, worktree setup scripts, and Git hooks. T3 Code asks before loading each new .envrc.",
+   "67dbb17daffb0535": "Reset direnv environment to default",
+   "f186d4f1f24efc34": "Load direnv environment",
+   "0b3e69e4f1271e7f": "Approve changes to an approved .envrc without asking. Only for repositories you fully control.",
+   "8e125dee1f9cd045": "Reset trust .envrc changes to default",
+   "ab3818ce8734cd66": "Trust .envrc changes",
++  "9e46f95f68d37e2d": "The flake dev shell use flake loads in T3 Code. Your own terminal keeps the shell the .envrc names.",
++  "ea2ccc53851a2ae6": "Reset development shell to default",
++  "2f72bb83e0b5cd92": "Development shell",
++  "ea4d204dbc76ebb0": "Default",
++  "823b6adbd14839ae": "Default (from .envrc)",
+   "caceacc91363777f": "Searching project files…",
+   "5c05c11095f5fba8": "Indexing project files…",
+   "26b576ee6e175b29": "No matching image files.",
+@@ -11669,6 +11675,7 @@
+   "01cff0c3cb858073": "commands scripts setup run dev server checkout worktree t3.json import",
+   "e33f9dd525c5c0d1": "direnv envrc nix flake devenv mise shell environment variables path allow",
+   "98ad1fe5125bccd3": "direnv envrc approve allow changes automatically",
++  "59ad6a12a111e9ce": "direnv nix flake devshell dev shell use flake select",
+   "c349ea1db3f9e9f1": "Environment icon",
+   "18bd7981d6c50994": "machine glyph sidebar mac mini studio laptop desktop server cloud vm",
+   "8ac2984f4e732091": "turn off on disable enable local server agents remote only restart",
+diff --git a/apps/web/src/i18n/translations/es.json b/apps/web/src/i18n/translations/es.json
+index 617472e593..7405fa09cc 100644
+--- a/apps/web/src/i18n/translations/es.json
++++ b/apps/web/src/i18n/translations/es.json
+@@ -4108,6 +4108,7 @@
+   "1b16346722b65812": "Queda un {timeLeft}% de la ventana",
+   "728c6cc1431e76c8": "Se restablece en {duration} · {time}",
+   "e16b0b9b490c8bc7": "{label}: {value}",
++  "715118b0e1636ecd": "On · {devShell}",
+   "0d0556795bc6e65d": "On",
+   "b6b71b45e07c391b": "Off",
+   "ba67d0a9ff5dabf0": "La API del portapapeles no está disponible al copiar la solicitud de administrador.",
+@@ -8870,12 +8871,17 @@
+   "2c2b437431e4cd1d": "No hay proveedores disponibles",
+   "561c7b30cbf698ec": "Última selección",
+   "45ed5c748cf9280f": "direnv environment",
+-  "f2f0be3f5a7d3eaa": "Load the project's .envrc for agents and worktree setup scripts. T3 Code asks before loading each new .envrc.",
++  "66e83fb46a4227ab": "Load the project's .envrc for agents, worktree setup scripts, and Git hooks. T3 Code asks before loading each new .envrc.",
+   "67dbb17daffb0535": "Reset direnv environment to default",
+   "f186d4f1f24efc34": "Load direnv environment",
+   "0b3e69e4f1271e7f": "Approve changes to an approved .envrc without asking. Only for repositories you fully control.",
+   "8e125dee1f9cd045": "Reset trust .envrc changes to default",
+   "ab3818ce8734cd66": "Trust .envrc changes",
++  "9e46f95f68d37e2d": "The flake dev shell use flake loads in T3 Code. Your own terminal keeps the shell the .envrc names.",
++  "ea2ccc53851a2ae6": "Reset development shell to default",
++  "2f72bb83e0b5cd92": "Development shell",
++  "ea4d204dbc76ebb0": "Default",
++  "823b6adbd14839ae": "Default (from .envrc)",
+   "caceacc91363777f": "Buscando archivos del proyecto…",
+   "5c05c11095f5fba8": "Indexando archivos del proyecto…",
+   "26b576ee6e175b29": "No hay archivos de imagen coincidentes.",
+@@ -11654,6 +11660,7 @@
+   "01cff0c3cb858073": "comandos scripts configuración ejecutar servidor de desarrollo checkout worktree t3.json importar",
+   "e33f9dd525c5c0d1": "direnv envrc nix flake devenv mise shell environment variables path allow",
+   "98ad1fe5125bccd3": "direnv envrc approve allow changes automatically",
++  "59ad6a12a111e9ce": "direnv nix flake devshell dev shell use flake select",
+   "c349ea1db3f9e9f1": "Icono del entorno",
+   "18bd7981d6c50994": "máquina glifo barra lateral mac mini studio portátil escritorio servidor nube vm",
+   "8ac2984f4e732091": "apagar encender desactivar activar servidor local agentes solo remoto reiniciar",
+diff --git a/apps/web/src/i18n/translations/fr.json b/apps/web/src/i18n/translations/fr.json
+index f1fd8cebbe..1346b42436 100644
+--- a/apps/web/src/i18n/translations/fr.json
++++ b/apps/web/src/i18n/translations/fr.json
+@@ -4109,6 +4109,7 @@
+   "1b16346722b65812": "{timeLeft} % de la fenêtre restant",
+   "728c6cc1431e76c8": "Réinitialisation dans {duration} · {time}",
+   "e16b0b9b490c8bc7": "{label} : {value}",
++  "715118b0e1636ecd": "On · {devShell}",
+   "0d0556795bc6e65d": "On",
+   "b6b71b45e07c391b": "Off",
+   "ba67d0a9ff5dabf0": "L’API Presse-papiers n’est pas disponible pour copier la demande à l’administrateur.",
+@@ -8872,12 +8873,17 @@
+   "2c2b437431e4cd1d": "Aucun fournisseur disponible",
+   "561c7b30cbf698ec": "Dernière sélection",
+   "45ed5c748cf9280f": "direnv environment",
+-  "f2f0be3f5a7d3eaa": "Load the project's .envrc for agents and worktree setup scripts. T3 Code asks before loading each new .envrc.",
++  "66e83fb46a4227ab": "Load the project's .envrc for agents, worktree setup scripts, and Git hooks. T3 Code asks before loading each new .envrc.",
+   "67dbb17daffb0535": "Reset direnv environment to default",
+   "f186d4f1f24efc34": "Load direnv environment",
+   "0b3e69e4f1271e7f": "Approve changes to an approved .envrc without asking. Only for repositories you fully control.",
+   "8e125dee1f9cd045": "Reset trust .envrc changes to default",
+   "ab3818ce8734cd66": "Trust .envrc changes",
++  "9e46f95f68d37e2d": "The flake dev shell use flake loads in T3 Code. Your own terminal keeps the shell the .envrc names.",
++  "ea2ccc53851a2ae6": "Reset development shell to default",
++  "2f72bb83e0b5cd92": "Development shell",
++  "ea4d204dbc76ebb0": "Default",
++  "823b6adbd14839ae": "Default (from .envrc)",
+   "caceacc91363777f": "Recherche dans les fichiers du projet…",
+   "5c05c11095f5fba8": "Indexation des fichiers du projet…",
+   "26b576ee6e175b29": "Aucun fichier image correspondant.",
+@@ -11659,6 +11665,7 @@
+   "01cff0c3cb858073": "commandes scripts configuration exécuter serveur de dev extraction worktree t3.json importer",
+   "e33f9dd525c5c0d1": "direnv envrc nix flake devenv mise shell environment variables path allow",
+   "98ad1fe5125bccd3": "direnv envrc approve allow changes automatically",
++  "59ad6a12a111e9ce": "direnv nix flake devshell dev shell use flake select",
+   "c349ea1db3f9e9f1": "Icône de l’environnement",
+   "18bd7981d6c50994": "machine glyphe barre latérale mac mini studio portable bureau serveur cloud vm",
+   "8ac2984f4e732091": "désactiver activer serveur local agents distant uniquement redémarrer",
+diff --git a/apps/web/src/i18n/translations/ja.json b/apps/web/src/i18n/translations/ja.json
+index 500ffd5b1d..305cc605e2 100644
+--- a/apps/web/src/i18n/translations/ja.json
++++ b/apps/web/src/i18n/translations/ja.json
+@@ -4099,6 +4099,7 @@
+   "1b16346722b65812": "期間の残り {timeLeft}%",
+   "728c6cc1431e76c8": "{duration} 後にリセット · {time}",
+   "e16b0b9b490c8bc7": "{label}: {value}",
++  "715118b0e1636ecd": "On · {devShell}",
+   "0d0556795bc6e65d": "On",
+   "b6b71b45e07c391b": "Off",
+   "ba67d0a9ff5dabf0": "管理者へのリクエストをコピーする際にクリップボード API を利用できませんでした。",
+@@ -8828,12 +8829,17 @@
+   "2c2b437431e4cd1d": "利用できるプロバイダーはありません",
+   "561c7b30cbf698ec": "前回の選択",
+   "45ed5c748cf9280f": "direnv environment",
+-  "f2f0be3f5a7d3eaa": "Load the project's .envrc for agents and worktree setup scripts. T3 Code asks before loading each new .envrc.",
++  "66e83fb46a4227ab": "Load the project's .envrc for agents, worktree setup scripts, and Git hooks. T3 Code asks before loading each new .envrc.",
+   "67dbb17daffb0535": "Reset direnv environment to default",
+   "f186d4f1f24efc34": "Load direnv environment",
+   "0b3e69e4f1271e7f": "Approve changes to an approved .envrc without asking. Only for repositories you fully control.",
+   "8e125dee1f9cd045": "Reset trust .envrc changes to default",
+   "ab3818ce8734cd66": "Trust .envrc changes",
++  "9e46f95f68d37e2d": "The flake dev shell use flake loads in T3 Code. Your own terminal keeps the shell the .envrc names.",
++  "ea2ccc53851a2ae6": "Reset development shell to default",
++  "2f72bb83e0b5cd92": "Development shell",
++  "ea4d204dbc76ebb0": "Default",
++  "823b6adbd14839ae": "Default (from .envrc)",
+   "caceacc91363777f": "プロジェクトのファイルを検索しています…",
+   "5c05c11095f5fba8": "プロジェクトのファイルをインデックスしています…",
+   "26b576ee6e175b29": "一致する画像ファイルはありません。",
+@@ -11609,6 +11615,7 @@
+   "01cff0c3cb858073": "コマンド スクリプト セットアップ 実行 開発サーバー チェックアウト ワークツリー t3.json インポート scripts",
+   "e33f9dd525c5c0d1": "direnv envrc nix flake devenv mise shell environment variables path allow",
+   "98ad1fe5125bccd3": "direnv envrc approve allow changes automatically",
++  "59ad6a12a111e9ce": "direnv nix flake devshell dev shell use flake select",
+   "c349ea1db3f9e9f1": "環境のアイコン",
+   "18bd7981d6c50994": "マシン グリフ サイドバー Mac mini Studio ノートパソコン デスクトップ サーバー クラウド VM machine",
+   "8ac2984f4e732091": "オフ オン 無効 有効 ローカルサーバー エージェント リモートのみ 再起動 local server",
+diff --git a/apps/web/src/i18n/translations/ko.json b/apps/web/src/i18n/translations/ko.json
+index 8f2675cb90..01ed695d29 100644
+--- a/apps/web/src/i18n/translations/ko.json
++++ b/apps/web/src/i18n/translations/ko.json
+@@ -4096,6 +4096,7 @@
+   "1b16346722b65812": "기간 {timeLeft}% 남음",
+   "728c6cc1431e76c8": "{duration} 후 초기화 · {time}",
+   "e16b0b9b490c8bc7": "{label}: {value}",
++  "715118b0e1636ecd": "On · {devShell}",
+   "0d0556795bc6e65d": "On",
+   "b6b71b45e07c391b": "Off",
+   "ba67d0a9ff5dabf0": "관리자 요청을 복사하는 중 클립보드 API를 사용할 수 없습니다.",
+@@ -8831,12 +8832,17 @@
+   "2c2b437431e4cd1d": "사용 가능한 제공자가 없습니다",
+   "561c7b30cbf698ec": "마지막 선택",
+   "45ed5c748cf9280f": "direnv environment",
+-  "f2f0be3f5a7d3eaa": "Load the project's .envrc for agents and worktree setup scripts. T3 Code asks before loading each new .envrc.",
++  "66e83fb46a4227ab": "Load the project's .envrc for agents, worktree setup scripts, and Git hooks. T3 Code asks before loading each new .envrc.",
+   "67dbb17daffb0535": "Reset direnv environment to default",
+   "f186d4f1f24efc34": "Load direnv environment",
+   "0b3e69e4f1271e7f": "Approve changes to an approved .envrc without asking. Only for repositories you fully control.",
+   "8e125dee1f9cd045": "Reset trust .envrc changes to default",
+   "ab3818ce8734cd66": "Trust .envrc changes",
++  "9e46f95f68d37e2d": "The flake dev shell use flake loads in T3 Code. Your own terminal keeps the shell the .envrc names.",
++  "ea2ccc53851a2ae6": "Reset development shell to default",
++  "2f72bb83e0b5cd92": "Development shell",
++  "ea4d204dbc76ebb0": "Default",
++  "823b6adbd14839ae": "Default (from .envrc)",
+   "caceacc91363777f": "프로젝트 파일 검색 중…",
+   "5c05c11095f5fba8": "프로젝트 파일 색인 중…",
+   "26b576ee6e175b29": "일치하는 이미지 파일이 없습니다.",
+@@ -11606,6 +11612,7 @@
+   "01cff0c3cb858073": "명령 스크립트 설정 실행 개발 서버 체크아웃 워크트리 t3.json 가져오기",
+   "e33f9dd525c5c0d1": "direnv envrc nix flake devenv mise shell environment variables path allow",
+   "98ad1fe5125bccd3": "direnv envrc approve allow changes automatically",
++  "59ad6a12a111e9ce": "direnv nix flake devshell dev shell use flake select",
+   "c349ea1db3f9e9f1": "환경 아이콘",
+   "18bd7981d6c50994": "머신 아이콘 사이드바 mac mini studio 노트북 데스크톱 서버 클라우드 vm",
+   "8ac2984f4e732091": "끄기 켜기 사용 안 함 사용 로컬 서버 에이전트 원격 전용 다시 시작",
+diff --git a/apps/web/src/i18n/translations/pt-BR.json b/apps/web/src/i18n/translations/pt-BR.json
+index aba6d1cfb0..187fe20bb5 100644
+--- a/apps/web/src/i18n/translations/pt-BR.json
++++ b/apps/web/src/i18n/translations/pt-BR.json
+@@ -4108,6 +4108,7 @@
+   "1b16346722b65812": "{timeLeft}% da janela restante",
+   "728c6cc1431e76c8": "Renova em {duration} · {time}",
+   "e16b0b9b490c8bc7": "{label}: {value}",
++  "715118b0e1636ecd": "On · {devShell}",
+   "0d0556795bc6e65d": "On",
+   "b6b71b45e07c391b": "Off",
+   "ba67d0a9ff5dabf0": "A API da área de transferência não está disponível ao copiar o pedido para o administrador.",
+@@ -8871,12 +8872,17 @@
+   "2c2b437431e4cd1d": "Nenhum provedor disponível",
+   "561c7b30cbf698ec": "Último selecionado",
+   "45ed5c748cf9280f": "direnv environment",
+-  "f2f0be3f5a7d3eaa": "Load the project's .envrc for agents and worktree setup scripts. T3 Code asks before loading each new .envrc.",
++  "66e83fb46a4227ab": "Load the project's .envrc for agents, worktree setup scripts, and Git hooks. T3 Code asks before loading each new .envrc.",
+   "67dbb17daffb0535": "Reset direnv environment to default",
+   "f186d4f1f24efc34": "Load direnv environment",
+   "0b3e69e4f1271e7f": "Approve changes to an approved .envrc without asking. Only for repositories you fully control.",
+   "8e125dee1f9cd045": "Reset trust .envrc changes to default",
+   "ab3818ce8734cd66": "Trust .envrc changes",
++  "9e46f95f68d37e2d": "The flake dev shell use flake loads in T3 Code. Your own terminal keeps the shell the .envrc names.",
++  "ea2ccc53851a2ae6": "Reset development shell to default",
++  "2f72bb83e0b5cd92": "Development shell",
++  "ea4d204dbc76ebb0": "Default",
++  "823b6adbd14839ae": "Default (from .envrc)",
+   "caceacc91363777f": "Pesquisando arquivos do projeto…",
+   "5c05c11095f5fba8": "Indexando arquivos do projeto…",
+   "26b576ee6e175b29": "Nenhum arquivo de imagem correspondente.",
+@@ -11658,6 +11664,7 @@
+   "01cff0c3cb858073": "comandos scripts setup executar servidor dev checkout worktree t3.json importar",
+   "e33f9dd525c5c0d1": "direnv envrc nix flake devenv mise shell environment variables path allow",
+   "98ad1fe5125bccd3": "direnv envrc approve allow changes automatically",
++  "59ad6a12a111e9ce": "direnv nix flake devshell dev shell use flake select",
+   "c349ea1db3f9e9f1": "Ícone do ambiente",
+   "18bd7981d6c50994": "máquina glifo barra lateral mac mini studio notebook desktop servidor nuvem vm",
+   "8ac2984f4e732091": "desligar ligar desativar ativar servidor local agentes só remoto reiniciar",
+diff --git a/apps/web/src/i18n/translations/ru.json b/apps/web/src/i18n/translations/ru.json
+index b74b579c2c..c7269e401d 100644
+--- a/apps/web/src/i18n/translations/ru.json
++++ b/apps/web/src/i18n/translations/ru.json
+@@ -4108,6 +4108,7 @@
+   "1b16346722b65812": "От окна осталось {timeLeft}%",
+   "728c6cc1431e76c8": "Сброс через {duration} · {time}",
+   "e16b0b9b490c8bc7": "{label}: {value}",
++  "715118b0e1636ecd": "On · {devShell}",
+   "0d0556795bc6e65d": "On",
+   "b6b71b45e07c391b": "Off",
+   "ba67d0a9ff5dabf0": "API буфера обмена недоступен при копировании запроса администратору.",
+@@ -8872,12 +8873,17 @@
+   "2c2b437431e4cd1d": "Нет доступных провайдеров",
+   "561c7b30cbf698ec": "Последний выбранный",
+   "45ed5c748cf9280f": "direnv environment",
+-  "f2f0be3f5a7d3eaa": "Load the project's .envrc for agents and worktree setup scripts. T3 Code asks before loading each new .envrc.",
++  "66e83fb46a4227ab": "Load the project's .envrc for agents, worktree setup scripts, and Git hooks. T3 Code asks before loading each new .envrc.",
+   "67dbb17daffb0535": "Reset direnv environment to default",
+   "f186d4f1f24efc34": "Load direnv environment",
+   "0b3e69e4f1271e7f": "Approve changes to an approved .envrc without asking. Only for repositories you fully control.",
+   "8e125dee1f9cd045": "Reset trust .envrc changes to default",
+   "ab3818ce8734cd66": "Trust .envrc changes",
++  "9e46f95f68d37e2d": "The flake dev shell use flake loads in T3 Code. Your own terminal keeps the shell the .envrc names.",
++  "ea2ccc53851a2ae6": "Reset development shell to default",
++  "2f72bb83e0b5cd92": "Development shell",
++  "ea4d204dbc76ebb0": "Default",
++  "823b6adbd14839ae": "Default (from .envrc)",
+   "caceacc91363777f": "Поиск файлов проекта…",
+   "5c05c11095f5fba8": "Индексация файлов проекта…",
+   "26b576ee6e175b29": "Нет подходящих изображений.",
+@@ -11659,6 +11665,7 @@
+   "01cff0c3cb858073": "команды скрипты настройка запуск dev-сервер checkout рабочее дерево t3.json импорт",
+   "e33f9dd525c5c0d1": "direnv envrc nix flake devenv mise shell environment variables path allow",
+   "98ad1fe5125bccd3": "direnv envrc approve allow changes automatically",
++  "59ad6a12a111e9ce": "direnv nix flake devshell dev shell use flake select",
+   "c349ea1db3f9e9f1": "Значок окружения",
+   "18bd7981d6c50994": "значок компьютера боковая панель mac mini studio ноутбук десктоп сервер облако vm",
+   "8ac2984f4e732091": "выключить включить отключить локальный сервер агенты только удалённо перезапуск",
+diff --git a/apps/web/src/i18n/translations/sv.json b/apps/web/src/i18n/translations/sv.json
+index 5df1fedb1a..8a604ccd58 100644
+--- a/apps/web/src/i18n/translations/sv.json
++++ b/apps/web/src/i18n/translations/sv.json
+@@ -4109,6 +4109,7 @@
+   "1b16346722b65812": "{timeLeft} % av fönstret kvar",
+   "728c6cc1431e76c8": "Återställs om {duration} · {time}",
+   "e16b0b9b490c8bc7": "{label}: {value}",
++  "715118b0e1636ecd": "On · {devShell}",
+   "0d0556795bc6e65d": "On",
+   "b6b71b45e07c391b": "Off",
+   "ba67d0a9ff5dabf0": "Urklipps-API:t är inte tillgängligt vid kopiering av administratörsbegäran.",
+@@ -8878,12 +8879,17 @@
+   "2c2b437431e4cd1d": "Inga leverantörer tillgängliga",
+   "561c7b30cbf698ec": "Senast vald",
+   "45ed5c748cf9280f": "direnv environment",
+-  "f2f0be3f5a7d3eaa": "Load the project's .envrc for agents and worktree setup scripts. T3 Code asks before loading each new .envrc.",
++  "66e83fb46a4227ab": "Load the project's .envrc for agents, worktree setup scripts, and Git hooks. T3 Code asks before loading each new .envrc.",
+   "67dbb17daffb0535": "Reset direnv environment to default",
+   "f186d4f1f24efc34": "Load direnv environment",
+   "0b3e69e4f1271e7f": "Approve changes to an approved .envrc without asking. Only for repositories you fully control.",
+   "8e125dee1f9cd045": "Reset trust .envrc changes to default",
+   "ab3818ce8734cd66": "Trust .envrc changes",
++  "9e46f95f68d37e2d": "The flake dev shell use flake loads in T3 Code. Your own terminal keeps the shell the .envrc names.",
++  "ea2ccc53851a2ae6": "Reset development shell to default",
++  "2f72bb83e0b5cd92": "Development shell",
++  "ea4d204dbc76ebb0": "Default",
++  "823b6adbd14839ae": "Default (from .envrc)",
+   "caceacc91363777f": "Söker i projektfiler…",
+   "5c05c11095f5fba8": "Indexerar projektfiler…",
+   "26b576ee6e175b29": "Inga matchande bildfiler.",
+@@ -11667,6 +11673,7 @@
+   "01cff0c3cb858073": "kommandon skript konfiguration kör dev-server utcheckning worktree t3.json importera",
+   "e33f9dd525c5c0d1": "direnv envrc nix flake devenv mise shell environment variables path allow",
+   "98ad1fe5125bccd3": "direnv envrc approve allow changes automatically",
++  "59ad6a12a111e9ce": "direnv nix flake devshell dev shell use flake select",
+   "c349ea1db3f9e9f1": "Miljöns ikon",
+   "18bd7981d6c50994": "dator symbol sidofält mac mini studio laptop skrivbord server moln vm",
+   "8ac2984f4e732091": "stäng av slå på inaktivera aktivera lokal server agenter bara fjärr starta om",
+diff --git a/apps/web/src/i18n/translations/zh.json b/apps/web/src/i18n/translations/zh.json
+index 3feb698f97..cf6dc1d22f 100644
+--- a/apps/web/src/i18n/translations/zh.json
++++ b/apps/web/src/i18n/translations/zh.json
+@@ -4115,6 +4115,7 @@
+   "1b16346722b65812": "窗口剩余 {timeLeft}%",
+   "728c6cc1431e76c8": "{duration} 后重置 · {time}",
+   "e16b0b9b490c8bc7": "{label}：{value}",
++  "715118b0e1636ecd": "On · {devShell}",
+   "0d0556795bc6e65d": "On",
+   "b6b71b45e07c391b": "Off",
+   "ba67d0a9ff5dabf0": "复制管理员请求时剪贴板 API 不可用。",
+@@ -8888,12 +8889,17 @@
+   "2c2b437431e4cd1d": "没有可用的提供方",
+   "561c7b30cbf698ec": "上次选择",
+   "45ed5c748cf9280f": "direnv environment",
+-  "f2f0be3f5a7d3eaa": "Load the project's .envrc for agents and worktree setup scripts. T3 Code asks before loading each new .envrc.",
++  "66e83fb46a4227ab": "Load the project's .envrc for agents, worktree setup scripts, and Git hooks. T3 Code asks before loading each new .envrc.",
+   "67dbb17daffb0535": "Reset direnv environment to default",
+   "f186d4f1f24efc34": "Load direnv environment",
+   "0b3e69e4f1271e7f": "Approve changes to an approved .envrc without asking. Only for repositories you fully control.",
+   "8e125dee1f9cd045": "Reset trust .envrc changes to default",
+   "ab3818ce8734cd66": "Trust .envrc changes",
++  "9e46f95f68d37e2d": "The flake dev shell use flake loads in T3 Code. Your own terminal keeps the shell the .envrc names.",
++  "ea2ccc53851a2ae6": "Reset development shell to default",
++  "2f72bb83e0b5cd92": "Development shell",
++  "ea4d204dbc76ebb0": "Default",
++  "823b6adbd14839ae": "Default (from .envrc)",
+   "caceacc91363777f": "正在搜索项目文件…",
+   "5c05c11095f5fba8": "正在索引项目文件…",
+   "26b576ee6e175b29": "没有匹配的图片文件。",
+@@ -11683,6 +11689,7 @@
+   "01cff0c3cb858073": "命令 脚本 设置 运行 开发服务器 工作副本 工作树 t3.json 导入",
+   "e33f9dd525c5c0d1": "direnv envrc nix flake devenv mise shell environment variables path allow",
+   "98ad1fe5125bccd3": "direnv envrc approve allow changes automatically",
++  "59ad6a12a111e9ce": "direnv nix flake devshell dev shell use flake select",
+   "c349ea1db3f9e9f1": "环境图标",
+   "18bd7981d6c50994": "机器 图标 侧边栏 mac mini studio 笔记本 台式机 服务器 云 vm",
+   "8ac2984f4e732091": "关闭 开启 禁用 启用 本地服务器 智能体 仅远程 重启",
 diff --git a/apps/web/src/state/projectEnvironment.ts b/apps/web/src/state/projectEnvironment.ts
 index 5c3ad27ae0..afa94a0333 100644
 --- a/apps/web/src/state/projectEnvironment.ts
@@ -853,10 +1452,10 @@ index 5c3ad27ae0..afa94a0333 100644
          run?.runId,
          run?.status,
 diff --git a/docs/user/project-settings.md b/docs/user/project-settings.md
-index f1e3c0eca6..561cd1279a 100644
+index 323b8f84b5..3080c53de3 100644
 --- a/docs/user/project-settings.md
 +++ b/docs/user/project-settings.md
-@@ -241,6 +241,11 @@ run inside T3 Code through the Cursor SDK, which has no way to pass them an envi
+@@ -250,6 +250,11 @@ run inside T3 Code through the Cursor SDK, which has no way to pass them an envi
  not get the project's `.envrc`. OpenCode 2 runs one server for all of an instance's projects, so its
  agents do not get it either.
  
@@ -933,7 +1532,7 @@ index 1f0c69bead..926e2cefda 100644
    approved: Schema.Boolean,
    /** Why nothing was approved. */
 diff --git a/packages/contracts/src/rpc.ts b/packages/contracts/src/rpc.ts
-index a1602609eb..a0fd472bfa 100644
+index fcca7f878e..0f7ab2c94d 100644
 --- a/packages/contracts/src/rpc.ts
 +++ b/packages/contracts/src/rpc.ts
 @@ -124,6 +124,7 @@ import {
@@ -944,7 +1543,7 @@ index a1602609eb..a0fd472bfa 100644
  } from "./projectEnvironment.ts";
  import {
    WorktreeSetupCancelInput,
-@@ -629,6 +630,7 @@ export const WS_METHODS = {
+@@ -671,6 +672,7 @@ export const WS_METHODS = {
    worktreeSetupCancel: "worktreeSetup.cancel",
    projectEnvironmentStatus: "projectEnvironment.status",
    projectEnvironmentApprove: "projectEnvironment.approve",
@@ -952,7 +1551,7 @@ index a1602609eb..a0fd472bfa 100644
    subscribeTerminalMetadata: "subscribeTerminalMetadata",
    subscribePreviewEvents: "subscribePreviewEvents",
    subscribeDiscoveredLocalServers: "subscribeDiscoveredLocalServers",
-@@ -1580,6 +1582,12 @@ const WsProjectEnvironmentStatusRpc = Rpc.make(WS_METHODS.projectEnvironmentStat
+@@ -1724,6 +1726,12 @@ const WsProjectEnvironmentStatusRpc = Rpc.make(WS_METHODS.projectEnvironmentStat
    error: EnvironmentAuthorizationError,
  });
  
@@ -965,7 +1564,7 @@ index a1602609eb..a0fd472bfa 100644
  const WsProjectEnvironmentApproveRpc = Rpc.make(WS_METHODS.projectEnvironmentApprove, {
    payload: ProjectEnvironmentApproveInput,
    success: ProjectEnvironmentApproveResult,
-@@ -2283,6 +2291,7 @@ export const WsRpcGroup = RpcGroup.make(
+@@ -2441,6 +2449,7 @@ export const WsRpcGroup = RpcGroup.make(
    WsWorktreeSetupCancelRpc,
    WsProjectEnvironmentStatusRpc,
    WsProjectEnvironmentApproveRpc,
@@ -974,7 +1573,7 @@ index a1602609eb..a0fd472bfa 100644
    WsVcsRefreshStatusRpc,
    WsGitRunStackedActionRpc,
 diff --git a/packages/contracts/src/settings.ts b/packages/contracts/src/settings.ts
-index 1f8e815eee..ec7f19a5fc 100644
+index 637c81c6e2..624bb71c37 100644
 --- a/packages/contracts/src/settings.ts
 +++ b/packages/contracts/src/settings.ts
 @@ -35,6 +35,7 @@ import {
@@ -985,7 +1584,7 @@ index 1f8e815eee..ec7f19a5fc 100644
  import { ProjectScript, type ProjectMutation } from "./project.ts";
  import { DEFAULT_RUNTIME_MODE, RuntimeMode } from "./providerPolicy.ts";
  import { BrowserProfile, BrowserProfileId, DEFAULT_BROWSER_PROFILE_ID } from "./browserProfile.ts";
-@@ -1182,6 +1183,7 @@ export const PROJECT_SCOPED_SERVER_SETTING_KEYS = [
+@@ -1183,6 +1184,7 @@ export const PROJECT_SCOPED_SERVER_SETTING_KEYS = [
    "enableAgentDeviceAccess",
    "enableDirenvEnvironment",
    "trustDirenvChanges",
@@ -993,7 +1592,7 @@ index 1f8e815eee..ec7f19a5fc 100644
    "textGenerationModelSelection",
    "threadTitleInstructions",
    "sourceControlWriterModelSelection",
-@@ -1222,6 +1224,7 @@ export const ProjectSettingsOverrides = Schema.Struct({
+@@ -1223,6 +1225,7 @@ export const ProjectSettingsOverrides = Schema.Struct({
    enableAgentDeviceAccess: Schema.optionalKey(Schema.Boolean),
    enableDirenvEnvironment: Schema.optionalKey(Schema.Boolean),
    trustDirenvChanges: Schema.optionalKey(Schema.Boolean),
@@ -1001,7 +1600,7 @@ index 1f8e815eee..ec7f19a5fc 100644
    textGenerationModelSelection: Schema.optionalKey(ModelSelection),
    threadTitleInstructions: Schema.optionalKey(TrimmedString),
    sourceControlWriterModelSelection: Schema.optionalKey(Schema.NullOr(ModelSelection)),
-@@ -1449,6 +1452,10 @@ export const ServerSettings = Schema.Struct({
+@@ -1457,6 +1460,10 @@ export const ServerSettings = Schema.Struct({
    enableDirenvEnvironment: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(true))),
    /** Approve every change to an approved project's `.envrc` without asking. */
    trustDirenvChanges: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(false))),
@@ -1012,7 +1611,7 @@ index 1f8e815eee..ec7f19a5fc 100644
    /** Enabling the Device panel must not grant providers device control. */
    enableDeviceSupport: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(false))),
    deviceOnboardingCompleted: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(false))),
-@@ -1903,6 +1910,7 @@ export const ServerSettingsPatch = Schema.Struct({
+@@ -1916,6 +1923,7 @@ export const ServerSettingsPatch = Schema.Struct({
    enableAgentDeviceAccess: Schema.optionalKey(Schema.Boolean),
    enableDirenvEnvironment: Schema.optionalKey(Schema.Boolean),
    trustDirenvChanges: Schema.optionalKey(Schema.Boolean),

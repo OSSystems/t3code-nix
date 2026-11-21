@@ -1,4 +1,4 @@
-From 15939dff37a49b163d5a27a636cacfa78d9466de Mon Sep 17 00:00:00 2001
+From f186bdbf626e7338548e9325d0a64c61ca7c6d93 Mon Sep 17 00:00:00 2001
 From: Otavio Salvador <otavio@ossystems.com.br>
 Date: Sat, 26 Sep 2026 02:11:52 -0300
 Subject: [PATCH 01/13] feat(server): agents start with the project's direnv
@@ -25,7 +25,17 @@ A blocked `.envrc` notice offers "Allow .envrc" on web and mobile, backed by a
 `projectEnvironment.allowDirenv` RPC that resolves the directory from the thread. The behavior is
 on by default and can be turned off per environment or project with "Load direnv environment".
 ---
- .../src/features/threads/thread-work-log.tsx  |  57 +++++
+ .../src/features/threads/thread-work-log.tsx  |  58 +++++
+ apps/mobile/src/i18n/translations/de.json     |   5 +
+ apps/mobile/src/i18n/translations/en.json     |   5 +
+ apps/mobile/src/i18n/translations/es.json     |   5 +
+ apps/mobile/src/i18n/translations/fr.json     |   5 +
+ apps/mobile/src/i18n/translations/ja.json     |   5 +
+ apps/mobile/src/i18n/translations/ko.json     |   5 +
+ apps/mobile/src/i18n/translations/pt-BR.json  |   5 +
+ apps/mobile/src/i18n/translations/ru.json     |   5 +
+ apps/mobile/src/i18n/translations/sv.json     |   5 +
+ apps/mobile/src/i18n/translations/zh.json     |   5 +
  apps/server/src/auth/RpcAuthorization.ts      |   1 +
  .../src/observability/RpcInstrumentation.ts   |   1 +
  .../Adapters/ClaudeAdapterV2.ts               |   6 +-
@@ -39,12 +49,22 @@ on by default and can be turned off per environment or project with "Load direnv
  apps/server/src/processRunner.ts              |   4 +-
  .../src/provider/DirenvEnvironment.test.ts    | 236 ++++++++++++++++++
  apps/server/src/provider/DirenvEnvironment.ts | 227 +++++++++++++++++
- .../src/provider/Drivers/AntigravityDriver.ts |   3 +-
+ .../src/provider/Drivers/AntigravityDriver.ts |   9 +-
  .../src/provider/acp/AntigravityAcpSupport.ts |   3 +
  apps/server/src/server.ts                     |   2 +
  apps/server/src/ws.ts                         |  34 +++
- .../components/chat/TimelineWorkEntryRow.tsx  |  63 ++++-
- .../src/components/settings/settingsSearch.ts |   7 +
+ .../components/chat/TimelineWorkEntryRow.tsx  |  64 ++++-
+ .../src/components/settings/settingsSearch.ts |   9 +
+ apps/web/src/i18n/translations/de.json        |  12 +-
+ apps/web/src/i18n/translations/en.json        |  12 +-
+ apps/web/src/i18n/translations/es.json        |  12 +-
+ apps/web/src/i18n/translations/fr.json        |  12 +-
+ apps/web/src/i18n/translations/ja.json        |  12 +-
+ apps/web/src/i18n/translations/ko.json        |  12 +-
+ apps/web/src/i18n/translations/pt-BR.json     |  12 +-
+ apps/web/src/i18n/translations/ru.json        |  12 +-
+ apps/web/src/i18n/translations/sv.json        |  12 +-
+ apps/web/src/i18n/translations/zh.json        |  12 +-
  apps/web/src/session-logic.ts                 |   5 +
  docs/user/project-settings.md                 |  21 ++
  .../src/state/threadCommands.ts               |   4 +
@@ -61,17 +81,17 @@ on by default and can be turned off per environment or project with "Load direnv
  packages/provider-grok/src/server/adapter.ts  |   5 +-
  .../provider-opencode/src/server/adapter.ts   |   6 +-
  packages/provider-pi/src/server/adapter.ts    |   6 +-
- 36 files changed, 1175 insertions(+), 18 deletions(-)
+ 56 files changed, 1324 insertions(+), 49 deletions(-)
  create mode 100644 apps/server/src/provider/DirenvEnvironment.test.ts
  create mode 100644 apps/server/src/provider/DirenvEnvironment.ts
  create mode 100644 packages/contracts/src/projectEnvironment.ts
  create mode 100644 packages/provider-core/src/server/direnvEnvironment.ts
 
 diff --git a/apps/mobile/src/features/threads/thread-work-log.tsx b/apps/mobile/src/features/threads/thread-work-log.tsx
-index 7bb97ac35f..e22d42f393 100644
+index 33b8613d99..900b75dd2b 100644
 --- a/apps/mobile/src/features/threads/thread-work-log.tsx
 +++ b/apps/mobile/src/features/threads/thread-work-log.tsx
-@@ -33,6 +33,7 @@ import {
+@@ -34,6 +34,7 @@ import {
  } from "react";
  import {
    Animated as NativeAnimated,
@@ -79,7 +99,7 @@ index 7bb97ac35f..e22d42f393 100644
    type ColorValue,
    Pressable,
    ScrollView,
-@@ -864,6 +865,54 @@ function HighlightedCodeText({
+@@ -866,6 +867,55 @@ function HighlightedCodeText({
    );
  }
  
@@ -92,6 +112,7 @@ index 7bb97ac35f..e22d42f393 100644
 +  readonly threadId: ThreadId;
 +  readonly warningId: string;
 +}) {
++  const gt = useGT();
 +  const allowDirenv = useAtomCommand(threadEnvironment.allowDirenv, "allow direnv");
 +  const [state, setState] = useState<"idle" | "pending" | "allowed">(() =>
 +    allowedDirenvWarnings.has(props.warningId) ? "allowed" : "idle",
@@ -99,7 +120,7 @@ index 7bb97ac35f..e22d42f393 100644
 +  return (
 +    <Pressable
 +      accessibilityRole="button"
-+      accessibilityHint="Loads the project's direnv environment with your next message."
++      accessibilityHint={gt("Loads the project's direnv environment with your next message.")}
 +      disabled={state !== "idle"}
 +      hitSlop={6}
 +      onPress={async () => {
@@ -115,17 +136,17 @@ index 7bb97ac35f..e22d42f393 100644
 +        }
 +        setState("idle");
 +        if (result._tag === "Success") {
-+          Alert.alert("Could not allow the .envrc", result.value.error);
++          Alert.alert(gt("Could not allow the .envrc"), result.value.error);
 +        }
 +      }}
 +      className="min-h-8 justify-center px-2"
 +    >
 +      <Text className="font-t3-medium text-xs text-foreground">
 +        {state === "allowed"
-+          ? "Allowed · applies to your next message"
++          ? gt("Allowed · applies to your next message")
 +          : state === "pending"
-+            ? "Allowing…"
-+            : "Allow .envrc"}
++            ? gt("Allowing…")
++            : gt("Allow .envrc")}
 +      </Text>
 +    </Pressable>
 +  );
@@ -134,7 +155,7 @@ index 7bb97ac35f..e22d42f393 100644
  const ThreadWorkLogRow = function ThreadWorkLogRow(
    props: Omit<
      ThreadWorkLogProps,
-@@ -1126,6 +1175,14 @@ const ThreadWorkLogRow = function ThreadWorkLogRow(
+@@ -1146,6 +1196,14 @@ const ThreadWorkLogRow = function ThreadWorkLogRow(
          )}
  
          <View className="shrink-0 flex-row items-center gap-px">
@@ -148,12 +169,172 @@ index 7bb97ac35f..e22d42f393 100644
 +          ) : null}
            {props.copied ? (
              <Text className="pr-1 font-t3-medium text-3xs text-adaptive-emerald-600-400">
-               Copied
+               <T>Copied</T>
+diff --git a/apps/mobile/src/i18n/translations/de.json b/apps/mobile/src/i18n/translations/de.json
+index 76f4b5e7fc..8946e01d35 100644
+--- a/apps/mobile/src/i18n/translations/de.json
++++ b/apps/mobile/src/i18n/translations/de.json
+@@ -4771,6 +4771,11 @@
+   "6dd1f458bcd6a2ea": "Wird neu erzeugt…",
+   "de30fdae5b3fea98": "Titel neu erzeugen",
+   "97d24138000f3db2": "Vorbereitung des Arbeitsbereichs wiederholen",
++  "24f627b483b69e9c": "Loads the project's direnv environment with your next message.",
++  "5b4f92a3a756615c": "Could not allow the .envrc",
++  "aa3492e231540ec4": "Allowed · applies to your next message",
++  "5a52bdeaa02b47a0": "Allowing…",
++  "fc61e2ab877a106d": "Allow .envrc",
+   "93435595c79fd659": "Nutzungslimit erreicht. Versuche es nach {resetTime} erneut.",
+   "5a2d803b3ea43f18": "Nutzungslimit erreicht.",
+   "d5365c5e28a18442": "{summary}: {message}",
+diff --git a/apps/mobile/src/i18n/translations/en.json b/apps/mobile/src/i18n/translations/en.json
+index 3cd28a93b0..d1aab397f4 100644
+--- a/apps/mobile/src/i18n/translations/en.json
++++ b/apps/mobile/src/i18n/translations/en.json
+@@ -4772,6 +4772,11 @@
+   "6dd1f458bcd6a2ea": "Regenerating…",
+   "de30fdae5b3fea98": "Regenerate title",
+   "97d24138000f3db2": "Retry workspace preparation",
++  "24f627b483b69e9c": "Loads the project's direnv environment with your next message.",
++  "5b4f92a3a756615c": "Could not allow the .envrc",
++  "aa3492e231540ec4": "Allowed · applies to your next message",
++  "5a52bdeaa02b47a0": "Allowing…",
++  "fc61e2ab877a106d": "Allow .envrc",
+   "93435595c79fd659": "Usage limit reached. Retry after {resetTime}.",
+   "5a2d803b3ea43f18": "Usage limit reached.",
+   "d5365c5e28a18442": "{summary}: {message}",
+diff --git a/apps/mobile/src/i18n/translations/es.json b/apps/mobile/src/i18n/translations/es.json
+index c7f35fe052..c6759a6f3d 100644
+--- a/apps/mobile/src/i18n/translations/es.json
++++ b/apps/mobile/src/i18n/translations/es.json
+@@ -4764,6 +4764,11 @@
+   "6dd1f458bcd6a2ea": "Regenerando…",
+   "de30fdae5b3fea98": "Regenerar título",
+   "97d24138000f3db2": "Reintentar la preparación del espacio de trabajo",
++  "24f627b483b69e9c": "Loads the project's direnv environment with your next message.",
++  "5b4f92a3a756615c": "Could not allow the .envrc",
++  "aa3492e231540ec4": "Allowed · applies to your next message",
++  "5a52bdeaa02b47a0": "Allowing…",
++  "fc61e2ab877a106d": "Allow .envrc",
+   "93435595c79fd659": "Se alcanzó el límite de uso. Vuelve a intentarlo después de {resetTime}.",
+   "5a2d803b3ea43f18": "Se alcanzó el límite de uso.",
+   "d5365c5e28a18442": "{summary}: {message}",
+diff --git a/apps/mobile/src/i18n/translations/fr.json b/apps/mobile/src/i18n/translations/fr.json
+index 1865c4ad6e..70555540c4 100644
+--- a/apps/mobile/src/i18n/translations/fr.json
++++ b/apps/mobile/src/i18n/translations/fr.json
+@@ -4765,6 +4765,11 @@
+   "6dd1f458bcd6a2ea": "Régénération…",
+   "de30fdae5b3fea98": "Régénérer le titre",
+   "97d24138000f3db2": "Relancer la préparation de l’espace de travail",
++  "24f627b483b69e9c": "Loads the project's direnv environment with your next message.",
++  "5b4f92a3a756615c": "Could not allow the .envrc",
++  "aa3492e231540ec4": "Allowed · applies to your next message",
++  "5a52bdeaa02b47a0": "Allowing…",
++  "fc61e2ab877a106d": "Allow .envrc",
+   "93435595c79fd659": "Limite d’utilisation atteinte. Réessayez après {resetTime}.",
+   "5a2d803b3ea43f18": "Limite d’utilisation atteinte.",
+   "d5365c5e28a18442": "{summary} : {message}",
+diff --git a/apps/mobile/src/i18n/translations/ja.json b/apps/mobile/src/i18n/translations/ja.json
+index 945269c326..756e4d4713 100644
+--- a/apps/mobile/src/i18n/translations/ja.json
++++ b/apps/mobile/src/i18n/translations/ja.json
+@@ -4746,6 +4746,11 @@
+   "6dd1f458bcd6a2ea": "再生成しています…",
+   "de30fdae5b3fea98": "タイトルを再生成",
+   "97d24138000f3db2": "ワークスペースの準備を再試行",
++  "24f627b483b69e9c": "Loads the project's direnv environment with your next message.",
++  "5b4f92a3a756615c": "Could not allow the .envrc",
++  "aa3492e231540ec4": "Allowed · applies to your next message",
++  "5a52bdeaa02b47a0": "Allowing…",
++  "fc61e2ab877a106d": "Allow .envrc",
+   "93435595c79fd659": "使用量の上限に達しました。{resetTime} 以降に再試行してください。",
+   "5a2d803b3ea43f18": "使用量の上限に達しました。",
+   "d5365c5e28a18442": "{summary}: {message}",
+diff --git a/apps/mobile/src/i18n/translations/ko.json b/apps/mobile/src/i18n/translations/ko.json
+index 8153a7115d..d8a60d8d58 100644
+--- a/apps/mobile/src/i18n/translations/ko.json
++++ b/apps/mobile/src/i18n/translations/ko.json
+@@ -4751,6 +4751,11 @@
+   "6dd1f458bcd6a2ea": "다시 생성하는 중…",
+   "de30fdae5b3fea98": "제목 다시 생성",
+   "97d24138000f3db2": "작업 영역 준비 다시 시도",
++  "24f627b483b69e9c": "Loads the project's direnv environment with your next message.",
++  "5b4f92a3a756615c": "Could not allow the .envrc",
++  "aa3492e231540ec4": "Allowed · applies to your next message",
++  "5a52bdeaa02b47a0": "Allowing…",
++  "fc61e2ab877a106d": "Allow .envrc",
+   "93435595c79fd659": "사용량 한도에 도달했습니다. {resetTime} 후에 다시 시도하세요.",
+   "5a2d803b3ea43f18": "사용량 한도에 도달했습니다.",
+   "d5365c5e28a18442": "{summary}: {message}",
+diff --git a/apps/mobile/src/i18n/translations/pt-BR.json b/apps/mobile/src/i18n/translations/pt-BR.json
+index 403c870d90..5e67b25482 100644
+--- a/apps/mobile/src/i18n/translations/pt-BR.json
++++ b/apps/mobile/src/i18n/translations/pt-BR.json
+@@ -4765,6 +4765,11 @@
+   "6dd1f458bcd6a2ea": "Gerando novamente…",
+   "de30fdae5b3fea98": "Gerar título novamente",
+   "97d24138000f3db2": "Tentar preparar o workspace novamente",
++  "24f627b483b69e9c": "Loads the project's direnv environment with your next message.",
++  "5b4f92a3a756615c": "Could not allow the .envrc",
++  "aa3492e231540ec4": "Allowed · applies to your next message",
++  "5a52bdeaa02b47a0": "Allowing…",
++  "fc61e2ab877a106d": "Allow .envrc",
+   "93435595c79fd659": "Limite de uso atingido. Tente novamente após {resetTime}.",
+   "5a2d803b3ea43f18": "Limite de uso atingido.",
+   "d5365c5e28a18442": "{summary}: {message}",
+diff --git a/apps/mobile/src/i18n/translations/ru.json b/apps/mobile/src/i18n/translations/ru.json
+index 9082ff4a4a..05ef7b80a7 100644
+--- a/apps/mobile/src/i18n/translations/ru.json
++++ b/apps/mobile/src/i18n/translations/ru.json
+@@ -4843,6 +4843,11 @@
+   "6dd1f458bcd6a2ea": "Генерация…",
+   "de30fdae5b3fea98": "Сгенерировать название заново",
+   "97d24138000f3db2": "Повторить подготовку рабочей области",
++  "24f627b483b69e9c": "Loads the project's direnv environment with your next message.",
++  "5b4f92a3a756615c": "Could not allow the .envrc",
++  "aa3492e231540ec4": "Allowed · applies to your next message",
++  "5a52bdeaa02b47a0": "Allowing…",
++  "fc61e2ab877a106d": "Allow .envrc",
+   "93435595c79fd659": "Достигнут лимит использования. Повторите после {resetTime}.",
+   "5a2d803b3ea43f18": "Достигнут лимит использования.",
+   "d5365c5e28a18442": "{summary}: {message}",
+diff --git a/apps/mobile/src/i18n/translations/sv.json b/apps/mobile/src/i18n/translations/sv.json
+index 4134d30285..ca3ed8e373 100644
+--- a/apps/mobile/src/i18n/translations/sv.json
++++ b/apps/mobile/src/i18n/translations/sv.json
+@@ -4771,6 +4771,11 @@
+   "6dd1f458bcd6a2ea": "Genererar om…",
+   "de30fdae5b3fea98": "Generera om titel",
+   "97d24138000f3db2": "Försök förbereda arbetsytan igen",
++  "24f627b483b69e9c": "Loads the project's direnv environment with your next message.",
++  "5b4f92a3a756615c": "Could not allow the .envrc",
++  "aa3492e231540ec4": "Allowed · applies to your next message",
++  "5a52bdeaa02b47a0": "Allowing…",
++  "fc61e2ab877a106d": "Allow .envrc",
+   "93435595c79fd659": "Användningsgränsen har nåtts. Försök igen efter {resetTime}.",
+   "5a2d803b3ea43f18": "Användningsgränsen har nåtts.",
+   "d5365c5e28a18442": "{summary}: {message}",
+diff --git a/apps/mobile/src/i18n/translations/zh.json b/apps/mobile/src/i18n/translations/zh.json
+index aa33f5a3bd..309a1493ae 100644
+--- a/apps/mobile/src/i18n/translations/zh.json
++++ b/apps/mobile/src/i18n/translations/zh.json
+@@ -4754,6 +4754,11 @@
+   "6dd1f458bcd6a2ea": "正在重新生成…",
+   "de30fdae5b3fea98": "重新生成标题",
+   "97d24138000f3db2": "重试准备工作区",
++  "24f627b483b69e9c": "Loads the project's direnv environment with your next message.",
++  "5b4f92a3a756615c": "Could not allow the .envrc",
++  "aa3492e231540ec4": "Allowed · applies to your next message",
++  "5a52bdeaa02b47a0": "Allowing…",
++  "fc61e2ab877a106d": "Allow .envrc",
+   "93435595c79fd659": "已达到用量限制。请在 {resetTime} 后重试。",
+   "5a2d803b3ea43f18": "已达到用量上限。",
+   "d5365c5e28a18442": "{summary}：{message}",
 diff --git a/apps/server/src/auth/RpcAuthorization.ts b/apps/server/src/auth/RpcAuthorization.ts
-index 7925fd8697..e2a1b5fc15 100644
+index 859beb21d3..c59f9b71ad 100644
 --- a/apps/server/src/auth/RpcAuthorization.ts
 +++ b/apps/server/src/auth/RpcAuthorization.ts
-@@ -177,6 +177,7 @@ export const RPC_REQUIRED_SCOPES = {
+@@ -190,6 +190,7 @@ export const RPC_REQUIRED_SCOPES = {
    [WS_METHODS.vcsRefreshBranch]: AuthOrchestrationReadScope,
    [WS_METHODS.subscribeWorktreeSetup]: AuthOrchestrationReadScope,
    [WS_METHODS.worktreeSetupCancel]: AuthOrchestrationOperateScope,
@@ -162,10 +343,10 @@ index 7925fd8697..e2a1b5fc15 100644
    [WS_METHODS.vcsRefreshStatus]: AuthOrchestrationReadScope,
    [WS_METHODS.gitResolvePullRequest]: AuthOrchestrationReadScope,
 diff --git a/apps/server/src/observability/RpcInstrumentation.ts b/apps/server/src/observability/RpcInstrumentation.ts
-index 4549ee8a33..30a846fb01 100644
+index a2b698657a..d038a55767 100644
 --- a/apps/server/src/observability/RpcInstrumentation.ts
 +++ b/apps/server/src/observability/RpcInstrumentation.ts
-@@ -163,6 +163,7 @@ const RPC_AGGREGATES = {
+@@ -177,6 +177,7 @@ const RPC_AGGREGATES = {
    [WS_METHODS.projectsSearchContents]: "workspace",
    [WS_METHODS.projectsSearchEntries]: "workspace",
    [WS_METHODS.projectsWriteFile]: "workspace",
@@ -174,10 +355,10 @@ index 4549ee8a33..30a846fb01 100644
    [WS_METHODS.projectsCreateNew]: "orchestration",
    [WS_METHODS.projectsCreateFromThread]: "orchestration",
 diff --git a/apps/server/src/orchestration-v2/Adapters/ClaudeAdapterV2.ts b/apps/server/src/orchestration-v2/Adapters/ClaudeAdapterV2.ts
-index fa8d3684f0..c58095ced1 100644
+index 3d4b3fdbab..4aa65ad5dd 100644
 --- a/apps/server/src/orchestration-v2/Adapters/ClaudeAdapterV2.ts
 +++ b/apps/server/src/orchestration-v2/Adapters/ClaudeAdapterV2.ts
-@@ -233,6 +233,7 @@ import {
+@@ -234,6 +234,7 @@ import {
  import { turnScopedSelectionTransition } from "@t3tools/provider-core/server/selectionTransition";
  import { providerMessageTextWithAttachmentPaths } from "@t3tools/provider-core/server/attachmentPrompt";
  import * as ProviderAdapter from "@t3tools/provider-core/server/ProviderAdapter";
@@ -185,7 +366,7 @@ index fa8d3684f0..c58095ced1 100644
  import {
    ProviderAdapterDriverCreateError,
    type ProviderAdapterDriverCreateInput,
-@@ -12773,7 +12774,10 @@ export const makeClaudeAdapterV2 = Effect.fn("makeClaudeAdapterV2")(function* (
+@@ -13099,7 +13100,10 @@ export const makeClaudeAdapterV2 = Effect.fn("makeClaudeAdapterV2")(function* (
                ? {}
                : { sdkSettings: claudeSdkLaunchArgSettings(launchArgSettings) }),
              environment: claudeQueryEnvironment(
@@ -198,10 +379,10 @@ index fa8d3684f0..c58095ced1 100644
                turnInput.appThread.lineage.relationshipToParent === "subagent"
                  ? yield* resolveSubagentPromptCacheTtl(turnInput.runtimePolicy.cwd)
 diff --git a/apps/server/src/orchestration-v2/Adapters/CodexAdapterV2.ts b/apps/server/src/orchestration-v2/Adapters/CodexAdapterV2.ts
-index d1ddd569e6..cb1b443107 100644
+index 68a87a5f0b..62a9f9a3c7 100644
 --- a/apps/server/src/orchestration-v2/Adapters/CodexAdapterV2.ts
 +++ b/apps/server/src/orchestration-v2/Adapters/CodexAdapterV2.ts
-@@ -136,6 +136,7 @@ import {
+@@ -138,6 +138,7 @@ import {
    MCP_APP_RESOURCE_SCHEME,
  } from "@t3tools/shared/mcpApp";
  import { snapshotMcpApp } from "../../mcpApps/McpAppSnapshot.ts";
@@ -209,7 +390,7 @@ index d1ddd569e6..cb1b443107 100644
  import {
    ProviderAdapterDriverCreateError,
    type ProviderAdapterDriverCreateInput,
-@@ -1945,7 +1946,10 @@ export const makeCodexAdapterV2 = Effect.fn("makeCodexAdapterV2")(function* (
+@@ -1977,7 +1978,10 @@ export const makeCodexAdapterV2 = Effect.fn("makeCodexAdapterV2")(function* (
            providerSessionId: input.providerSessionId,
            runtimePolicy: input.runtimePolicy,
            settings: resolvedRuntime?.config ?? adapterOptions.settings,
@@ -222,19 +403,19 @@ index d1ddd569e6..cb1b443107 100644
          const codexZone = codexTimeZone(resolvedRuntime?.environment ?? adapterOptions.environment);
          const additionalContextByThread = yield* Ref.make(
 diff --git a/apps/server/src/orchestration-v2/EffectWorker.test.ts b/apps/server/src/orchestration-v2/EffectWorker.test.ts
-index 428d7d4706..6987ae13d0 100644
+index 60c6fdd947..5c4f82df6b 100644
 --- a/apps/server/src/orchestration-v2/EffectWorker.test.ts
 +++ b/apps/server/src/orchestration-v2/EffectWorker.test.ts
-@@ -125,6 +125,7 @@ function layerExecutorFor(input: {
-         otherWorkingThreads: () => Effect.succeed([]),
+@@ -126,6 +126,7 @@ function layerExecutorFor(input: {
          releaseUnlessBusy: () => Effect.succeed(true),
+         forgetLoadedProviderThread: () => Effect.void,
          subscribePromptSuggestion: () => Stream.empty,
 +        takeProjectEnvironmentFailure: () => Effect.undefined,
        }),
      ),
      Layer.succeed(
 diff --git a/apps/server/src/orchestration-v2/ProviderSessionManager.test.ts b/apps/server/src/orchestration-v2/ProviderSessionManager.test.ts
-index 69375c34a2..84604a86bb 100644
+index 185bf0f019..763fee00d5 100644
 --- a/apps/server/src/orchestration-v2/ProviderSessionManager.test.ts
 +++ b/apps/server/src/orchestration-v2/ProviderSessionManager.test.ts
 @@ -38,6 +38,7 @@ import { TestClock } from "effect/testing";
@@ -245,7 +426,7 @@ index 69375c34a2..84604a86bb 100644
  import * as ServerEnvironment from "../environment/ServerEnvironment.ts";
  import * as ProjectService from "../project/ProjectService.ts";
  import * as McpProviderSession from "@t3tools/provider-core/server/mcpSession";
-@@ -651,6 +652,7 @@ function layerTest(input: {
+@@ -684,6 +685,7 @@ function layerTest(input: {
    readonly serverSettingsLayer?: ReturnType<typeof ServerSettings.layerTest>;
    readonly projectServiceLayer?: Layer.Layer<ProjectService.ProjectService>;
    readonly installationGateLayer?: Layer.Layer<ProviderInstallationGate.ProviderInstallationGate>;
@@ -253,7 +434,7 @@ index 69375c34a2..84604a86bb 100644
  }) {
    const layerConfiguredEventSink =
      input.flakyReleaseWrites !== undefined
-@@ -744,6 +746,7 @@ function layerTest(input: {
+@@ -782,6 +784,7 @@ function layerTest(input: {
            input.installationGateLayer ?? ProviderInstallationGate.layer,
            ...(input.serverSettingsLayer === undefined ? [] : [input.serverSettingsLayer]),
            ...(input.projectServiceLayer === undefined ? [] : [input.projectServiceLayer]),
@@ -261,7 +442,7 @@ index 69375c34a2..84604a86bb 100644
          ),
        ),
      ),
-@@ -5729,3 +5732,165 @@ it.effect("ProviderSessionManagerV2 gives a delegated child its project's device
+@@ -5776,3 +5779,165 @@ it.effect("ProviderSessionManagerV2 gives a delegated child its project's device
      assert.isTrue(child?.capabilities?.has("device"));
    }),
  );
@@ -428,10 +609,10 @@ index 69375c34a2..84604a86bb 100644
 +  }),
 +);
 diff --git a/apps/server/src/orchestration-v2/ProviderSessionManager.ts b/apps/server/src/orchestration-v2/ProviderSessionManager.ts
-index ba9ba7a2bd..3511bec2e2 100644
+index 162136a1e0..7685f25b3e 100644
 --- a/apps/server/src/orchestration-v2/ProviderSessionManager.ts
 +++ b/apps/server/src/orchestration-v2/ProviderSessionManager.ts
-@@ -51,6 +51,7 @@ import { ProviderWorkspaceMissingError } from "../provider/Errors.ts";
+@@ -52,6 +52,7 @@ import { ProviderWorkspaceMissingError } from "../provider/Errors.ts";
  import * as ProviderInstallationGate from "../provider/ProviderInstallationGate.ts";
  import * as ProjectService from "../project/ProjectService.ts";
  import * as McpProviderSessions from "@t3tools/provider-core/server/McpProviderSessions";
@@ -439,7 +620,7 @@ index ba9ba7a2bd..3511bec2e2 100644
  import * as ServerSettings from "../serverSettings.ts";
  import * as McpSessionRegistry from "../mcp/McpSessionRegistry.ts";
  import * as EventSink from "./EventSink.ts";
-@@ -130,6 +131,7 @@ export const delegatedTaskWillWake = (records: {
+@@ -131,6 +132,7 @@ export const delegatedTaskWillWake = (records: {
  
  export const ProviderSessionReleaseReason = Schema.Literals([
    "idle_timeout",
@@ -447,7 +628,7 @@ index ba9ba7a2bd..3511bec2e2 100644
    "runtime_error",
    "manual_shutdown",
    "server_shutdown",
-@@ -283,6 +285,14 @@ export interface ProviderSessionManagerV2Shape {
+@@ -295,6 +297,14 @@ export interface ProviderSessionManagerV2Shape {
    readonly subscribePromptSuggestion: (
      threadId: ThreadId,
    ) => Stream.Stream<OrchestrationV2PromptSuggestion>;
@@ -462,7 +643,7 @@ index ba9ba7a2bd..3511bec2e2 100644
  }
  
  export class ProviderSessionManagerV2 extends Context.Service<
-@@ -311,6 +321,14 @@ interface LiveSessionEntry {
+@@ -323,6 +333,14 @@ interface LiveSessionEntry {
    readonly idleFiber: Fiber.Fiber<void, never> | null;
    readonly pinnedSinceMs: number | null;
    readonly idleThreadUnloads: ReadonlyMap<ThreadId, IdleThreadUnload>;
@@ -477,7 +658,7 @@ index ba9ba7a2bd..3511bec2e2 100644
  }
  
  interface IdleThreadUnload {
-@@ -497,6 +515,89 @@ export const layerWithOptions = (
+@@ -509,6 +527,89 @@ export const layerWithOptions = (
            Effect.orElseSucceed(() => null),
          );
        });
@@ -567,7 +748,7 @@ index ba9ba7a2bd..3511bec2e2 100644
        const layerScope = yield* Effect.scope;
        // Group signals stop providers before restart capture; drop post-signal events so recovery owns that state.
        const shutdownSignal = { received: false };
-@@ -2970,6 +3071,9 @@ export const layerWithOptions = (
+@@ -2984,6 +3085,9 @@ export const layerWithOptions = (
              ),
            { concurrency: "unbounded", discard: true },
          );
@@ -577,7 +758,7 @@ index ba9ba7a2bd..3511bec2e2 100644
        }).pipe(Effect.withSpan("ProviderSessionManager.shutdown"));
        yield* Effect.addFinalizer(() =>
          shutdown.pipe(
-@@ -2979,6 +3083,12 @@ export const layerWithOptions = (
+@@ -2993,6 +3097,12 @@ export const layerWithOptions = (
  
        return ProviderSessionManagerV2.of({
          shutdown,
@@ -590,7 +771,7 @@ index ba9ba7a2bd..3511bec2e2 100644
          open: (input) =>
            sessionOpen.withLock(
              input.providerSessionId,
-@@ -3000,6 +3110,7 @@ export const layerWithOptions = (
+@@ -3014,6 +3124,7 @@ export const layerWithOptions = (
                const live = (yield* Ref.get(sessions)).get(key);
                if (live !== undefined) yield* releaseForLinkedEnvironments(live);
                const existing = (yield* Ref.get(sessions)).get(key);
@@ -598,7 +779,7 @@ index ba9ba7a2bd..3511bec2e2 100644
                if (existing !== undefined) {
                  const attached = existing.attachedThreadIds.has(input.threadId);
                  if (!attached && !existing.supportsMultipleProviderThreads) {
-@@ -3009,14 +3120,35 @@ export const layerWithOptions = (
+@@ -3023,14 +3134,35 @@ export const layerWithOptions = (
                      cause: `Provider ${existing.runtime.driver} does not support attaching multiple app threads to one session.`,
                    });
                  }
@@ -639,7 +820,7 @@ index ba9ba7a2bd..3511bec2e2 100644
                }
  
                const adapter = yield* registry.get(input.modelSelection.instanceId).pipe(
-@@ -3030,6 +3162,11 @@ export const layerWithOptions = (
+@@ -3044,6 +3176,11 @@ export const layerWithOptions = (
                  ),
                );
                const openedWithLinkedEnvironments = yield* readLinkedEnvironments;
@@ -651,7 +832,7 @@ index ba9ba7a2bd..3511bec2e2 100644
                const prepared = yield* prepareMcpSession(
                  input.threadId,
                  input.modelSelection.instanceId,
-@@ -3124,6 +3261,7 @@ export const layerWithOptions = (
+@@ -3141,6 +3278,7 @@ export const layerWithOptions = (
                  idleFiber: null,
                  pinnedSinceMs: null,
                  idleThreadUnloads: new Map(),
@@ -659,7 +840,7 @@ index ba9ba7a2bd..3511bec2e2 100644
                };
                yield* Ref.update(sessions, (current) => {
                  const updated = new Map(current);
-@@ -3374,6 +3512,9 @@ export const layerWithOptions = (
+@@ -3391,6 +3529,9 @@ export const layerWithOptions = (
              // Plain detaches preserve credentials held by live shared providers across workspace handoffs.
              if (input.revokeMcpCredential === true) {
                yield* clearMcpSession(input.threadId);
@@ -670,22 +851,22 @@ index ba9ba7a2bd..3511bec2e2 100644
              if (Option.isNone(detached)) {
                return;
 diff --git a/apps/server/src/orchestration-v2/ProviderTurnControlService.test.ts b/apps/server/src/orchestration-v2/ProviderTurnControlService.test.ts
-index 532d019ddd..5c2a5bf6fd 100644
+index 51c38efa8a..13e99839da 100644
 --- a/apps/server/src/orchestration-v2/ProviderTurnControlService.test.ts
 +++ b/apps/server/src/orchestration-v2/ProviderTurnControlService.test.ts
-@@ -302,6 +302,7 @@ it.effect(
-           otherWorkingThreads: () => Effect.succeed([]),
-           releaseUnlessBusy: () => Effect.succeed(true),
-           subscribePromptSuggestion: () => Stream.empty,
-+          takeProjectEnvironmentFailure: () => Effect.undefined,
-         }),
-       );
-       const layerControl = ProviderTurnControlService.layer.pipe(
+@@ -221,6 +221,7 @@ function layerSessions(
+       releaseUnlessBusy: () => Effect.succeed(true),
+       forgetLoadedProviderThread: () => Effect.void,
+       subscribePromptSuggestion: () => Stream.empty,
++      takeProjectEnvironmentFailure: () => Effect.undefined,
+     }),
+   );
+ }
 diff --git a/apps/server/src/orchestration-v2/ProviderTurnStartService.test.ts b/apps/server/src/orchestration-v2/ProviderTurnStartService.test.ts
-index 7b0759ae99..86f8afc8f8 100644
+index e4edafd709..e11ee29e71 100644
 --- a/apps/server/src/orchestration-v2/ProviderTurnStartService.test.ts
 +++ b/apps/server/src/orchestration-v2/ProviderTurnStartService.test.ts
-@@ -1300,6 +1300,7 @@ function makeLocalCommandHarness(input: {
+@@ -1389,6 +1389,7 @@ function makeLocalCommandHarness(input: {
                      interruptTurn,
                    } as unknown as ProviderAdapter.ProviderAdapterV2SessionRuntime),
              ),
@@ -694,10 +875,10 @@ index 7b0759ae99..86f8afc8f8 100644
          Layer.mock(ProviderAuthService.ProviderAuthService)({ tryHandlePromptCommand }),
          Layer.mock(RunExecutionService.RunExecutionServiceV2)({
 diff --git a/apps/server/src/orchestration-v2/ProviderTurnStartService.ts b/apps/server/src/orchestration-v2/ProviderTurnStartService.ts
-index 5996a090bf..fafcb0d113 100644
+index d423d0c2ea..cec3576778 100644
 --- a/apps/server/src/orchestration-v2/ProviderTurnStartService.ts
 +++ b/apps/server/src/orchestration-v2/ProviderTurnStartService.ts
-@@ -39,6 +39,7 @@ import * as ProjectService from "../project/ProjectService.ts";
+@@ -43,6 +43,7 @@ import * as ProjectService from "../project/ProjectService.ts";
  import * as ProviderAuthService from "../provider/ProviderAuthService.ts";
  import * as ServerSettings from "../serverSettings.ts";
  import { makeRestoreMissingWorktree } from "../workspace/restoreMissingWorktree.ts";
@@ -705,7 +886,7 @@ index 5996a090bf..fafcb0d113 100644
  import * as EventSink from "./EventSink.ts";
  import * as ProviderUsageAnalytics from "../telemetry/ProviderUsageAnalytics.ts";
  import * as ContextHandoffService from "./ContextHandoffService.ts";
-@@ -829,6 +830,49 @@ export const layer: Layer.Layer<
+@@ -971,6 +972,49 @@ export const layer: Layer.Layer<
        }
        const session = sessionResult.success;
        if (!(yield* isCurrentAttemptInStatus("starting"))) return;
@@ -1253,7 +1434,7 @@ index 0000000000..2a88f05494
 +
 +export const layer = Layer.effect(DirenvEnvironment, make());
 diff --git a/apps/server/src/provider/Drivers/AntigravityDriver.ts b/apps/server/src/provider/Drivers/AntigravityDriver.ts
-index 75bca5acc8..b4e94c8020 100644
+index 3d42678581..c4dbe98047 100644
 --- a/apps/server/src/provider/Drivers/AntigravityDriver.ts
 +++ b/apps/server/src/provider/Drivers/AntigravityDriver.ts
 @@ -1,4 +1,5 @@
@@ -1262,28 +1443,37 @@ index 75bca5acc8..b4e94c8020 100644
  import {
    AntigravitySettings,
    ProviderDriverKind,
-@@ -276,7 +277,7 @@ export const AntigravityDriver: ProviderDriver<
-           installation: executable,
-           profile,
-           cwd: input.cwd,
--          baseEnv: processEnvironment,
-+          baseEnv: applyDirenvEnvironment(processEnvironment, input.direnvEnvironment),
-           auth,
-           runtimeTempDirectory,
-         }),
+@@ -301,11 +302,15 @@ export const AntigravityDriver: ProviderDriver<
+       // `buildAntigravityAcpSpawnInput` sets `extendEnv: false`, so thread variables only reach the
+       // agent's shell through `baseEnv`.
+       const { processEnvironment: threadEnvironment, ...runtimeInput } = input;
++      const direnvEnvironment = applyDirenvEnvironment(
++        processEnvironment,
++        runtimeInput.direnvEnvironment,
++      );
+       const { executable, spawn } = yield* prepareSpawn(
+         runtimeInput.cwd,
+         threadEnvironment === undefined
+-          ? processEnvironment
+-          : { ...processEnvironment, ...threadEnvironment },
++          ? direnvEnvironment
++          : { ...direnvEnvironment, ...threadEnvironment },
+       );
+       const runtime = yield* makeAntigravityAcpRuntime({
+         ...runtimeInput,
 diff --git a/apps/server/src/provider/acp/AntigravityAcpSupport.ts b/apps/server/src/provider/acp/AntigravityAcpSupport.ts
-index 7fd64e2534..604760fb5b 100644
+index 7434e23b5e..be5817e264 100644
 --- a/apps/server/src/provider/acp/AntigravityAcpSupport.ts
 +++ b/apps/server/src/provider/acp/AntigravityAcpSupport.ts
-@@ -23,6 +23,7 @@ import {
+@@ -22,6 +22,7 @@ import {
    makeAntigravityStderrHandler,
    makeAntigravityStdoutTransform,
  } from "../antigravityAuthSupport.ts";
 +import type { DirenvEnvironmentDiff } from "../DirenvEnvironment.ts";
  import * as AcpSessionRuntime from "@t3tools/provider-acp/server/AcpSessionRuntime";
- import packageJson from "../../../package.json" with { type: "json" };
- import { normalizeAntigravitySessionUpdate } from "./AntigravityProtocol.ts";
-@@ -40,6 +41,8 @@ export interface AntigravityAcpRuntimeInput extends Omit<
+ import {
+   acpPermissionDisposition,
+@@ -44,6 +45,8 @@ export interface AntigravityAcpRuntimeInput extends Omit<
    | "transformSessionUpdate"
    | "transformStdout"
  > {
@@ -1291,12 +1481,12 @@ index 7fd64e2534..604760fb5b 100644
 +  readonly direnvEnvironment?: DirenvEnvironmentDiff;
    readonly childProcessSpawner: ChildProcessSpawner.ChildProcessSpawner["Service"];
    readonly onAuthorizationUrl?: (url: string) => Effect.Effect<void, EffectAcpErrors.AcpError>;
-   /** Serve `fs/read_text_file` for runtimes whose native reader is not qualified. */
+   /** Serve `fs/read_text_file` from T3 instead of the agent's native reader. */
 diff --git a/apps/server/src/server.ts b/apps/server/src/server.ts
-index 47c4a4c9a2..61024f6f93 100644
+index 35f63e9c44..cff31a599f 100644
 --- a/apps/server/src/server.ts
 +++ b/apps/server/src/server.ts
-@@ -102,6 +102,7 @@ import * as DesktopBrowserChannel from "./preview/DesktopBrowserChannel.ts";
+@@ -107,6 +107,7 @@ import * as DesktopBrowserChannel from "./preview/DesktopBrowserChannel.ts";
  import * as ServerBrowserStream from "./preview/ServerBrowserStream.ts";
  import * as PreviewBrowser from "./preview/PreviewBrowser.ts";
  import * as ProcessRunner from "./processRunner.ts";
@@ -1304,7 +1494,7 @@ index 47c4a4c9a2..61024f6f93 100644
  import * as GitManager from "./git/GitManager.ts";
  import * as EnvironmentTheme from "./environmentTheme.ts";
  import * as Keybindings from "./keybindings.ts";
-@@ -597,6 +598,7 @@ const layerScheduledTaskWebhookOrigin = Layer.effect(
+@@ -612,6 +613,7 @@ const layerScheduledTaskWebhookOrigin = Layer.effect(
  );
  
  const layerOrchestrationV2Runtime = RuntimeLayer.layerProduction.pipe(
@@ -1313,10 +1503,10 @@ index 47c4a4c9a2..61024f6f93 100644
    Layer.provide(layerScheduledTaskWebhookOrigin),
    Layer.provide(ProviderUsageAnalytics.layer),
 diff --git a/apps/server/src/ws.ts b/apps/server/src/ws.ts
-index 6defac543e..1b06eb01b1 100644
+index 7b4c232b92..e2f580be89 100644
 --- a/apps/server/src/ws.ts
 +++ b/apps/server/src/ws.ts
-@@ -225,6 +225,7 @@ import { threadWorkspaceRoot } from "./project/threadWorkspaceRoot.ts";
+@@ -227,6 +227,7 @@ import { threadWorkspaceRoot } from "./project/threadWorkspaceRoot.ts";
  import * as ManagedProjectFolders from "./project/ManagedProjectFolders.ts";
  import * as ScratchThreadPromotion from "./project/ScratchThreadPromotion.ts";
  import { mutateProjectWithClone } from "./project/ProjectMutation.ts";
@@ -1324,7 +1514,7 @@ index 6defac543e..1b06eb01b1 100644
  import * as ProjectCloneTracker from "./project/ProjectCloneTracker.ts";
  import * as RepositoryIdentityResolver from "./project/RepositoryIdentityResolver.ts";
  import * as WorktreeSetupTracker from "./project/WorktreeSetupTracker.ts";
-@@ -1506,6 +1507,38 @@ export const layerWsRpc = (
+@@ -1522,6 +1523,38 @@ export const layerWsRpc = (
        const repositoryIdentityResolver =
          yield* RepositoryIdentityResolver.RepositoryIdentityResolver;
        const projectEnrichment = yield* ProjectEnrichmentService.ProjectEnrichmentService;
@@ -1363,7 +1553,7 @@ index 6defac543e..1b06eb01b1 100644
        const agentSessionScanner = yield* AgentSessionScanner.AgentSessionScanner;
        const agentSessionImporter = yield* AgentSessionImporter.AgentSessionImporter;
        const checkpointDiffQuery = yield* CheckpointDiffQuery.CheckpointDiffQuery;
-@@ -3117,6 +3150,7 @@ export const layerWsRpc = (
+@@ -3160,6 +3193,7 @@ export const layerWsRpc = (
            worktreeSetupTracker
              .cancel(input.threadId)
              .pipe(Effect.map((cancelled) => ({ cancelled }))),
@@ -1372,7 +1562,7 @@ index 6defac543e..1b06eb01b1 100644
            vcsStatusBroadcaster.refreshStatus(input.cwd, { localOnly: input.localOnly ?? false }),
          [WS_METHODS.vcsPull]: (input) =>
 diff --git a/apps/web/src/components/chat/TimelineWorkEntryRow.tsx b/apps/web/src/components/chat/TimelineWorkEntryRow.tsx
-index eecd3c50bd..b523033155 100644
+index 385123fb21..528732fd35 100644
 --- a/apps/web/src/components/chat/TimelineWorkEntryRow.tsx
 +++ b/apps/web/src/components/chat/TimelineWorkEntryRow.tsx
 @@ -9,6 +9,7 @@ import {
@@ -1383,16 +1573,16 @@ index eecd3c50bd..b523033155 100644
    ThreadId,
  } from "@t3tools/contracts";
  import { scopeThreadRef } from "@t3tools/client-runtime/environment";
-@@ -24,7 +25,7 @@ import {
-   turnItemNeedsDetailFetch,
+@@ -27,7 +28,7 @@ import {
  } from "@t3tools/client-runtime/work-log/item-detail";
  import { claudeSkillInvocation } from "@t3tools/shared/toolActivity";
+ import { msg, T, useGT, useMessages, Var } from "gt-react";
 -import { memo, use, useState, type KeyboardEvent } from "react";
 +import { memo, use, useState, type KeyboardEvent, type MouseEvent } from "react";
  import {
    workEntryDisplayIndicatesToolFailure,
    workEntrySignalsSevereFailure,
-@@ -38,6 +39,9 @@ import { ChevronRightIcon, CircleAlertIcon, XIcon, RotateCcwIcon } from "lucide-
+@@ -41,6 +42,9 @@ import { ChevronRightIcon, CircleAlertIcon, XIcon, RotateCcwIcon } from "lucide-
  import { Button, InlineButton } from "../ui/button";
  import { useAssetUrls } from "../../assets/assetUrls";
  import { useThreadShell } from "../../state/entities";
@@ -1400,9 +1590,9 @@ index eecd3c50bd..b523033155 100644
 +import { useAtomCommand } from "../../state/use-atom-command";
 +import { toastManager } from "../ui/toast";
  import {
-   threadReadLabelPrefix,
    threadReadTargetId,
-@@ -154,6 +158,60 @@ type WorkEntryRowProps = {
+   threadReadTargetTitle,
+@@ -225,6 +229,61 @@ type WorkEntryRowProps = {
    onContentReady?: (() => void) | undefined;
  };
  
@@ -1417,6 +1607,7 @@ index eecd3c50bd..b523033155 100644
 +  readonly threadRef: ScopedThreadRef;
 +  readonly warningId: string;
 +}) {
++  const gt = useGT();
 +  const allowDirenv = useAtomCommand(threadEnvironment.allowDirenv);
 +  const [state, setState] = useState<"idle" | "pending" | "allowed">(() =>
 +    allowedDirenvWarnings.has(warningId) ? "allowed" : "idle",
@@ -1437,7 +1628,7 @@ index eecd3c50bd..b523033155 100644
 +    if (result._tag === "Success") {
 +      toastManager.add({
 +        type: "error",
-+        title: "Could not allow the .envrc",
++        title: gt("Could not allow the .envrc"),
 +        description: result.value.error,
 +      });
 +    }
@@ -1452,10 +1643,10 @@ index eecd3c50bd..b523033155 100644
 +      variant="ghost-muted"
 +    >
 +      {state === "allowed"
-+        ? "Allowed · applies to your next message"
++        ? gt("Allowed · applies to your next message")
 +        : state === "pending"
-+          ? "Allowing…"
-+          : "Allow .envrc"}
++          ? gt("Allowing…")
++          : gt("Allow .envrc")}
 +    </Button>
 +  );
 +}
@@ -1463,7 +1654,7 @@ index eecd3c50bd..b523033155 100644
  export const SimpleWorkEntryRow = memo(function SimpleWorkEntryRow(props: WorkEntryRowProps) {
    const ctx = use(TimelineRowCtx);
    const item = props.workEntry.projectedItem?.item;
-@@ -554,6 +612,9 @@ function WorkEntryLogRow(props: WorkEntryRowProps) {
+@@ -634,6 +693,9 @@ function WorkEntryLogRow(props: WorkEntryRowProps) {
                />
              </span>
            ) : null}
@@ -1474,28 +1665,670 @@ index eecd3c50bd..b523033155 100644
          </>
        }
 diff --git a/apps/web/src/components/settings/settingsSearch.ts b/apps/web/src/components/settings/settingsSearch.ts
-index 937e37dd8e..ab5f03a3a2 100644
+index 51ac4d7e19..b302661714 100644
 --- a/apps/web/src/components/settings/settingsSearch.ts
 +++ b/apps/web/src/components/settings/settingsSearch.ts
-@@ -790,6 +790,13 @@ export const SETTINGS_SEARCH_ITEMS = [
+@@ -832,6 +832,15 @@ export const SETTINGS_SEARCH_ITEMS = [
      scope: "environment-defaults",
-     searchTerms: ["caffeinate sleep prevent stay awake power laptop lid inhibit"],
+     searchTerms: [msg("caffeinate sleep prevent stay awake power laptop lid inhibit")],
    },
 +  {
 +    id: "direnv-environment",
-+    title: "Load direnv environment",
++    title: msg("Load direnv environment"),
 +    to: "/settings/general",
 +    scope: "project-defaults",
-+    searchTerms: ["envrc nix flake devenv mise dev shell path tools environment variables agents"],
++    searchTerms: [
++      msg("envrc nix flake devenv mise dev shell path tools environment variables agents"),
++    ],
 +  },
    {
      id: "background-activity",
-     title: "Background activity",
+     title: msg("Background activity"),
+diff --git a/apps/web/src/i18n/translations/de.json b/apps/web/src/i18n/translations/de.json
+index 5439ee3968..a4ebaaaf70 100644
+--- a/apps/web/src/i18n/translations/de.json
++++ b/apps/web/src/i18n/translations/de.json
+@@ -4286,6 +4286,10 @@
+   "918cd5477d0c0e9b": "Vollständige Nachricht anzeigen",
+   "513b0929ca7dde1b": "Tool-Eingabe\n{input}",
+   "c6e000ea79ae6a2b": "{status, select, inProgress {Thread „{title}“ wird gelesen} completed {Thread „{title}“ gelesen} failed {Thread „{title}“ konnte nicht gelesen werden} declined {Lesen von Thread „{title}“ abgelehnt} stopped {Lesen von Thread „{title}“ abgebrochen} other {Thread „{title}“ wird gelesen}}",
++  "5b4f92a3a756615c": "Could not allow the .envrc",
++  "aa3492e231540ec4": "Allowed · applies to your next message",
++  "5a52bdeaa02b47a0": "Allowing…",
++  "fc61e2ab877a106d": "Allow .envrc",
+   "93435595c79fd659": "Nutzungslimit erreicht. Versuche es nach {resetTime} erneut.",
+   "5a2d803b3ea43f18": "Nutzungslimit erreicht.",
+   "1afc4f46bc0675aa": "{label}, Tool-Aufruf fehlgeschlagen",
+@@ -5781,14 +5785,13 @@
+   "b6a29fff7c7c0808": "Niemand",
+   "54420465784bb1bd": "Ältere Kommentare laden",
+   "9d82ebf35bfb4043": "Hier ist noch nichts passiert.",
+-  "1cf216566c1ee064": "Projekt nicht verfügbar",
+   "b5ddadeb0810688c": "Status",
+   "93c1fc19d9bf1db0": "Beteiligung",
+   "d5a8b335d88b65bc": "{hidden} ausgeblendet",
+   "2160067266a61dd8": "Beliebig",
+   "cd4ec4acf33c65b9": "{count, plural, one {{count} Label} other {{count} Labels}}",
+   "bfd20acb8b7dee6b": "Beliebig",
+-  "ad208e3e32c85029": "Alle ausblenden",
++  "aead644e2cf1233f": "Alle anzeigen",
+   "77ce79d865716719": "Keine passenden Projekte.",
+   "af7eb4f9c7f0f575": "Filter",
+   "08247dd39b0c85ff": "Zugewiesene Person",
+@@ -6463,7 +6466,6 @@
+   "64d0189be492147c": "Check-Details können nicht geöffnet werden",
+   "600347ca50400a54": "Checks werden geladen…",
+   "1b381201aba745c2": "Keine Checks gemeldet",
+-  "aead644e2cf1233f": "Alle anzeigen",
+   "a6d75a4380173c60": "Checks öffnen: {summary}",
+   "be3d1766bad18693": "Checks: {summary}",
+   "425e4a3d6c5c2867": "{count, plural, one {{count} fehlgeschlagen} other {{count} fehlgeschlagen}}",
+@@ -9745,6 +9747,7 @@
+   "51497bd401292062": "Gedrückt halten",
+   "9d6cc6ac23312071": "Doppelt drücken",
+   "f001fa7b329c8fbf": "Erfolgreiche ausblenden",
++  "ad208e3e32c85029": "Alle ausblenden",
+   "c80e4bb3201efd71": "Zen",
+   "0cb9ffcd1fb46b0c": "Nur Status",
+   "cf0f7fc3df26fa75": "Status und Nachrichten",
+@@ -9954,6 +9957,7 @@
+   "573ea5fdf293a9d6": "Alle Checkouts",
+   "470ad8c54049d1e1": "Checkouts durchsuchen",
+   "7e2dfdd9f97fc027": "Projektbereich",
++  "1cf216566c1ee064": "Projekt nicht verfügbar",
+   "c1b8c351aa90f319": [
+     {
+       "t": "span",
+@@ -11565,6 +11569,8 @@
+   "5b8b854de7ee6f4d": "installierte cli versionen neuer verfügbar codex claude cursor grok fx kiro opencode",
+   "64f12530d55d2ad1": "fortsetzen laufende aktive unterbrochene arbeit neustart rechner absturz desktop update automatisch",
+   "214a98497c4ed05d": "caffeinate ruhezustand verhindern wach bleiben energie laptop deckel inhibit",
++  "f186d4f1f24efc34": "Load direnv environment",
++  "174e8ed57b585a50": "envrc nix flake devenv mise dev shell path tools environment variables agents",
+   "00469926c7027e2d": "ausgewogen leistung akku sparen erweitert git fetch anbieter zustand aktualisieren host energie überwachen inaktiv richtlinie",
+   "54e33e572cc71746": "standard arbeitsbereich modus entwurf lokal worktree",
+   "b2ece956b72c4a48": "Submodule",
+diff --git a/apps/web/src/i18n/translations/en.json b/apps/web/src/i18n/translations/en.json
+index c378e66342..d8ff87550a 100644
+--- a/apps/web/src/i18n/translations/en.json
++++ b/apps/web/src/i18n/translations/en.json
+@@ -4285,6 +4285,10 @@
+   "918cd5477d0c0e9b": "Show full message",
+   "513b0929ca7dde1b": "Tool input\n{input}",
+   "c6e000ea79ae6a2b": "{status, select, inProgress {Reading thread “{title}”} completed {Read thread “{title}”} failed {Failed to read thread “{title}”} declined {Declined to read thread “{title}”} stopped {Stopped reading thread “{title}”} other {Reading thread “{title}”}}",
++  "5b4f92a3a756615c": "Could not allow the .envrc",
++  "aa3492e231540ec4": "Allowed · applies to your next message",
++  "5a52bdeaa02b47a0": "Allowing…",
++  "fc61e2ab877a106d": "Allow .envrc",
+   "93435595c79fd659": "Usage limit reached. Retry after {resetTime}.",
+   "5a2d803b3ea43f18": "Usage limit reached.",
+   "1afc4f46bc0675aa": "{label}, tool call failed",
+@@ -5782,14 +5786,13 @@
+   "b6a29fff7c7c0808": "None",
+   "54420465784bb1bd": "Load older comments",
+   "9d82ebf35bfb4043": "Nothing has happened here yet.",
+-  "1cf216566c1ee064": "Unavailable project",
+   "b5ddadeb0810688c": "State",
+   "93c1fc19d9bf1db0": "Involvement",
+   "d5a8b335d88b65bc": "{hidden} hidden",
+   "2160067266a61dd8": "Any",
+   "cd4ec4acf33c65b9": "{count, plural, one {{count} label} other {{count} labels}}",
+   "bfd20acb8b7dee6b": "Anyone",
+-  "ad208e3e32c85029": "Hide all",
++  "aead644e2cf1233f": "Show all",
+   "77ce79d865716719": "No matching projects.",
+   "af7eb4f9c7f0f575": "Filters",
+   "08247dd39b0c85ff": "Assignee",
+@@ -6470,7 +6473,6 @@
+   "64d0189be492147c": "Unable to open check details",
+   "600347ca50400a54": "Loading checks…",
+   "1b381201aba745c2": "No checks reported",
+-  "aead644e2cf1233f": "Show all",
+   "a6d75a4380173c60": "Open checks: {summary}",
+   "be3d1766bad18693": "Checks: {summary}",
+   "425e4a3d6c5c2867": "{count, plural, one {{count} failed} other {{count} failed}}",
+@@ -9754,6 +9756,7 @@
+   "51497bd401292062": "Hold",
+   "9d6cc6ac23312071": "Double press",
+   "f001fa7b329c8fbf": "Hide successful",
++  "ad208e3e32c85029": "Hide all",
+   "c80e4bb3201efd71": "Zen",
+   "0cb9ffcd1fb46b0c": "Status only",
+   "cf0f7fc3df26fa75": "Status and messages",
+@@ -9963,6 +9966,7 @@
+   "573ea5fdf293a9d6": "All checkouts",
+   "470ad8c54049d1e1": "Search checkouts",
+   "7e2dfdd9f97fc027": "Project scope",
++  "1cf216566c1ee064": "Unavailable project",
+   "c1b8c351aa90f319": [
+     {
+       "t": "span",
+@@ -11573,6 +11577,8 @@
+   "5b8b854de7ee6f4d": "installed cli versions newer available codex claude cursor grok fx kiro opencode",
+   "64f12530d55d2ad1": "resume running active interrupted work restart reboot machine crash desktop update automatically",
+   "214a98497c4ed05d": "caffeinate sleep prevent stay awake power laptop lid inhibit",
++  "f186d4f1f24efc34": "Load direnv environment",
++  "174e8ed57b585a50": "envrc nix flake devenv mise dev shell path tools environment variables agents",
+   "00469926c7027e2d": "balanced performance battery saver advanced git fetch provider health refresh host power monitor idle policy",
+   "54e33e572cc71746": "default workspace mode draft local worktree",
+   "b2ece956b72c4a48": "Submodules",
+diff --git a/apps/web/src/i18n/translations/es.json b/apps/web/src/i18n/translations/es.json
+index 1538850527..bc1484a38d 100644
+--- a/apps/web/src/i18n/translations/es.json
++++ b/apps/web/src/i18n/translations/es.json
+@@ -4283,6 +4283,10 @@
+   "918cd5477d0c0e9b": "Mostrar el mensaje completo",
+   "513b0929ca7dde1b": "Entrada de la herramienta\n{input}",
+   "c6e000ea79ae6a2b": "{status, select, inProgress {Leyendo el hilo “{title}”} completed {Leyó el hilo “{title}”} failed {No se pudo leer el hilo “{title}”} declined {Se rechazó leer el hilo “{title}”} stopped {Se dejó de leer el hilo “{title}”} other {Leyendo el hilo “{title}”}}",
++  "5b4f92a3a756615c": "Could not allow the .envrc",
++  "aa3492e231540ec4": "Allowed · applies to your next message",
++  "5a52bdeaa02b47a0": "Allowing…",
++  "fc61e2ab877a106d": "Allow .envrc",
+   "93435595c79fd659": "Se alcanzó el límite de uso. Vuelve a intentarlo después de {resetTime}.",
+   "5a2d803b3ea43f18": "Se alcanzó el límite de uso.",
+   "1afc4f46bc0675aa": "{label}, falló la llamada a herramienta",
+@@ -5780,14 +5784,13 @@
+   "b6a29fff7c7c0808": "Nadie",
+   "54420465784bb1bd": "Cargar comentarios anteriores",
+   "9d82ebf35bfb4043": "Aquí no ha pasado nada todavía.",
+-  "1cf216566c1ee064": "Proyecto no disponible",
+   "b5ddadeb0810688c": "Estado",
+   "93c1fc19d9bf1db0": "Participación",
+   "d5a8b335d88b65bc": "{hidden} ocultos",
+   "2160067266a61dd8": "Cualquiera",
+   "cd4ec4acf33c65b9": "{count, plural, one {{count} etiqueta} other {{count} etiquetas}}",
+   "bfd20acb8b7dee6b": "Cualquiera",
+-  "ad208e3e32c85029": "Ocultar todo",
++  "aead644e2cf1233f": "Mostrar todo",
+   "77ce79d865716719": "No hay proyectos que coincidan.",
+   "af7eb4f9c7f0f575": "Filtros",
+   "08247dd39b0c85ff": "Asignado",
+@@ -6463,7 +6466,6 @@
+   "64d0189be492147c": "No se pueden abrir los detalles de la comprobación",
+   "600347ca50400a54": "Cargando comprobaciones…",
+   "1b381201aba745c2": "No se informó de ninguna comprobación",
+-  "aead644e2cf1233f": "Mostrar todo",
+   "a6d75a4380173c60": "Abrir comprobaciones: {summary}",
+   "be3d1766bad18693": "Comprobaciones: {summary}",
+   "425e4a3d6c5c2867": "{count, plural, one {{count} con errores} other {{count} con errores}}",
+@@ -9742,6 +9744,7 @@
+   "51497bd401292062": "Mantener pulsado",
+   "9d6cc6ac23312071": "Doble pulsación",
+   "f001fa7b329c8fbf": "Ocultar las correctas",
++  "ad208e3e32c85029": "Ocultar todo",
+   "c80e4bb3201efd71": "Zen",
+   "0cb9ffcd1fb46b0c": "Solo el estado",
+   "cf0f7fc3df26fa75": "Estado y mensajes",
+@@ -9951,6 +9954,7 @@
+   "573ea5fdf293a9d6": "Todos los checkouts",
+   "470ad8c54049d1e1": "Buscar checkouts",
+   "7e2dfdd9f97fc027": "Ámbito de proyectos",
++  "1cf216566c1ee064": "Proyecto no disponible",
+   "c1b8c351aa90f319": [
+     {
+       "t": "span",
+@@ -11558,6 +11562,8 @@
+   "5b8b854de7ee6f4d": "instalado cli versiones más recientes disponibles codex claude cursor grok fx kiro opencode",
+   "64f12530d55d2ad1": "reanudar en ejecución activo interrumpido trabajo reiniciar máquina fallo actualización de escritorio automáticamente",
+   "214a98497c4ed05d": "caffeinate reposo evitar mantener activo energía portátil tapa inhibir",
++  "f186d4f1f24efc34": "Load direnv environment",
++  "174e8ed57b585a50": "envrc nix flake devenv mise dev shell path tools environment variables agents",
+   "00469926c7027e2d": "equilibrado rendimiento ahorro de batería avanzado git fetch proveedor estado actualizar host energía monitor inactivo política",
+   "54e33e572cc71746": "espacio de trabajo predeterminado modo borrador local worktree",
+   "b2ece956b72c4a48": "Submódulos",
+diff --git a/apps/web/src/i18n/translations/fr.json b/apps/web/src/i18n/translations/fr.json
+index b9166940cc..c790908427 100644
+--- a/apps/web/src/i18n/translations/fr.json
++++ b/apps/web/src/i18n/translations/fr.json
+@@ -4284,6 +4284,10 @@
+   "918cd5477d0c0e9b": "Afficher le message complet",
+   "513b0929ca7dde1b": "Entrée de l’outil\n{input}",
+   "c6e000ea79ae6a2b": "{status, select, inProgress {Lecture du fil « {title} »} completed {Fil « {title} » lu} failed {Impossible de lire le fil « {title} »} declined {Refus de lire le fil « {title} »} stopped {Arrêt de la lecture du fil « {title} »} other {Lecture du fil « {title} »}}",
++  "5b4f92a3a756615c": "Could not allow the .envrc",
++  "aa3492e231540ec4": "Allowed · applies to your next message",
++  "5a52bdeaa02b47a0": "Allowing…",
++  "fc61e2ab877a106d": "Allow .envrc",
+   "93435595c79fd659": "Limite d’utilisation atteinte. Réessayez après {resetTime}.",
+   "5a2d803b3ea43f18": "Limite d’utilisation atteinte.",
+   "1afc4f46bc0675aa": "{label}, échec de l’appel d’outil",
+@@ -5781,14 +5785,13 @@
+   "b6a29fff7c7c0808": "Personne",
+   "54420465784bb1bd": "Charger les commentaires plus anciens",
+   "9d82ebf35bfb4043": "Rien ne s’est encore passé ici.",
+-  "1cf216566c1ee064": "Projet indisponible",
+   "b5ddadeb0810688c": "État",
+   "93c1fc19d9bf1db0": "Participation",
+   "d5a8b335d88b65bc": "{hidden} masqués",
+   "2160067266a61dd8": "Tous",
+   "cd4ec4acf33c65b9": "{count, plural, one {{count} libellé} other {{count} libellés}}",
+   "bfd20acb8b7dee6b": "N’importe qui",
+-  "ad208e3e32c85029": "Tout masquer",
++  "aead644e2cf1233f": "Tout afficher",
+   "77ce79d865716719": "Aucun projet correspondant.",
+   "af7eb4f9c7f0f575": "Filtres",
+   "08247dd39b0c85ff": "Assigné",
+@@ -6464,7 +6467,6 @@
+   "64d0189be492147c": "Impossible d’ouvrir les détails du check",
+   "600347ca50400a54": "Chargement des checks…",
+   "1b381201aba745c2": "Aucun check signalé",
+-  "aead644e2cf1233f": "Tout afficher",
+   "a6d75a4380173c60": "Ouvrir les checks : {summary}",
+   "be3d1766bad18693": "Checks : {summary}",
+   "425e4a3d6c5c2867": "{count, plural, one {{count} en échec} other {{count} en échec}}",
+@@ -9744,6 +9746,7 @@
+   "51497bd401292062": "Appui long",
+   "9d6cc6ac23312071": "Double appui",
+   "f001fa7b329c8fbf": "Masquer les réussis",
++  "ad208e3e32c85029": "Tout masquer",
+   "c80e4bb3201efd71": "Zen",
+   "0cb9ffcd1fb46b0c": "Statut uniquement",
+   "cf0f7fc3df26fa75": "Statut et messages",
+@@ -9953,6 +9956,7 @@
+   "573ea5fdf293a9d6": "Tous les checkouts",
+   "470ad8c54049d1e1": "Rechercher des checkouts",
+   "7e2dfdd9f97fc027": "Portée des projets",
++  "1cf216566c1ee064": "Projet indisponible",
+   "c1b8c351aa90f319": [
+     {
+       "t": "span",
+@@ -11563,6 +11567,8 @@
+   "5b8b854de7ee6f4d": "installé cli versions plus récentes disponibles codex claude cursor grok fx kiro opencode",
+   "64f12530d55d2ad1": "reprendre en cours actif interrompu travail redémarrer redémarrage machine plantage mise à jour bureau automatiquement",
+   "214a98497c4ed05d": "caffeinate veille empêcher rester éveillé alimentation portable capot inhiber",
++  "f186d4f1f24efc34": "Load direnv environment",
++  "174e8ed57b585a50": "envrc nix flake devenv mise dev shell path tools environment variables agents",
+   "00469926c7027e2d": "équilibré performances économie batterie avancé git fetch fournisseur état actualisation hôte énergie surveillance inactif politique",
+   "54e33e572cc71746": "espace de travail par défaut mode brouillon local worktree",
+   "b2ece956b72c4a48": "Sous-modules",
+diff --git a/apps/web/src/i18n/translations/ja.json b/apps/web/src/i18n/translations/ja.json
+index da6a34749d..4bc6b3e8dd 100644
+--- a/apps/web/src/i18n/translations/ja.json
++++ b/apps/web/src/i18n/translations/ja.json
+@@ -4274,6 +4274,10 @@
+   "918cd5477d0c0e9b": "メッセージ全体を表示",
+   "513b0929ca7dde1b": "ツールの入力\n{input}",
+   "c6e000ea79ae6a2b": "{status, select, inProgress {スレッド「{title}」を読み取っています} completed {スレッド「{title}」を読み取りました} failed {スレッド「{title}」を読み取れませんでした} declined {スレッド「{title}」の読み取りは拒否されました} stopped {スレッド「{title}」の読み取りを中止しました} other {スレッド「{title}」を読み取っています}}",
++  "5b4f92a3a756615c": "Could not allow the .envrc",
++  "aa3492e231540ec4": "Allowed · applies to your next message",
++  "5a52bdeaa02b47a0": "Allowing…",
++  "fc61e2ab877a106d": "Allow .envrc",
+   "93435595c79fd659": "使用量の上限に達しました。{resetTime} 以降に再試行してください。",
+   "5a2d803b3ea43f18": "使用量の上限に達しました。",
+   "1afc4f46bc0675aa": "{label}、ツール呼び出しに失敗しました",
+@@ -5763,14 +5767,13 @@
+   "b6a29fff7c7c0808": "なし",
+   "54420465784bb1bd": "以前のコメントを読み込む",
+   "9d82ebf35bfb4043": "まだアクティビティはありません。",
+-  "1cf216566c1ee064": "利用できないプロジェクト",
+   "b5ddadeb0810688c": "状態",
+   "93c1fc19d9bf1db0": "関与",
+   "d5a8b335d88b65bc": "{hidden} 件非表示",
+   "2160067266a61dd8": "すべて",
+   "cd4ec4acf33c65b9": "{count, plural, other {{count} 個のラベル}}",
+   "bfd20acb8b7dee6b": "すべてのユーザー",
+-  "ad208e3e32c85029": "すべて非表示",
++  "aead644e2cf1233f": "すべて表示",
+   "77ce79d865716719": "一致するプロジェクトはありません。",
+   "af7eb4f9c7f0f575": "フィルター",
+   "08247dd39b0c85ff": "担当者",
+@@ -6433,7 +6436,6 @@
+   "64d0189be492147c": "チェックの詳細を開けません",
+   "600347ca50400a54": "チェックを読み込んでいます…",
+   "1b381201aba745c2": "報告されたチェックはありません",
+-  "aead644e2cf1233f": "すべて表示",
+   "a6d75a4380173c60": "チェックを開く: {summary}",
+   "be3d1766bad18693": "チェック: {summary}",
+   "425e4a3d6c5c2867": "{count, plural, other {{count} 件失敗}}",
+@@ -9696,6 +9698,7 @@
+   "51497bd401292062": "長押し",
+   "9d6cc6ac23312071": "2 回押し",
+   "f001fa7b329c8fbf": "成功したものを非表示",
++  "ad208e3e32c85029": "すべて非表示",
+   "c80e4bb3201efd71": "Zen",
+   "0cb9ffcd1fb46b0c": "ステータスのみ",
+   "cf0f7fc3df26fa75": "ステータスとメッセージ",
+@@ -9905,6 +9908,7 @@
+   "573ea5fdf293a9d6": "すべてのチェックアウト",
+   "470ad8c54049d1e1": "チェックアウトを検索",
+   "7e2dfdd9f97fc027": "プロジェクトの範囲",
++  "1cf216566c1ee064": "利用できないプロジェクト",
+   "c1b8c351aa90f319": [
+     {
+       "t": "span",
+@@ -11513,6 +11517,8 @@
+   "5b8b854de7ee6f4d": "インストール済み CLI バージョン 新しい 利用可能 Codex Claude Cursor Grok fx Kiro OpenCode update",
+   "64f12530d55d2ad1": "再開 実行中 アクティブ 中断 作業 再起動 マシン クラッシュ デスクトップ 更新 自動 resume",
+   "214a98497c4ed05d": "caffeinate スリープ 防止 スリープしない 電源 ノートパソコン 蓋 inhibit sleep",
++  "f186d4f1f24efc34": "Load direnv environment",
++  "174e8ed57b585a50": "envrc nix flake devenv mise dev shell path tools environment variables agents",
+   "00469926c7027e2d": "バランス パフォーマンス バッテリー節約 詳細 Git フェッチ プロバイダー ヘルス 更新 ホスト 電源 モニター アイドル ポリシー battery",
+   "54e33e572cc71746": "デフォルト ワークスペース モード 下書き ローカル ワークツリー workspace",
+   "b2ece956b72c4a48": "サブモジュール",
+diff --git a/apps/web/src/i18n/translations/ko.json b/apps/web/src/i18n/translations/ko.json
+index f38e81a9b9..17aaf3a25a 100644
+--- a/apps/web/src/i18n/translations/ko.json
++++ b/apps/web/src/i18n/translations/ko.json
+@@ -4271,6 +4271,10 @@
+   "918cd5477d0c0e9b": "전체 메시지 표시",
+   "513b0929ca7dde1b": "도구 입력\n{input}",
+   "c6e000ea79ae6a2b": "{status, select, inProgress {스레드 “{title}” 읽는 중} completed {스레드 “{title}” 읽음} failed {스레드 “{title}” 읽기 실패} declined {스레드 “{title}” 읽기 거부됨} stopped {스레드 “{title}” 읽기 중지됨} other {스레드 “{title}” 읽는 중}}",
++  "5b4f92a3a756615c": "Could not allow the .envrc",
++  "aa3492e231540ec4": "Allowed · applies to your next message",
++  "5a52bdeaa02b47a0": "Allowing…",
++  "fc61e2ab877a106d": "Allow .envrc",
+   "93435595c79fd659": "사용량 한도에 도달했습니다. {resetTime} 후에 다시 시도하세요.",
+   "5a2d803b3ea43f18": "사용량 한도에 도달했습니다.",
+   "1afc4f46bc0675aa": "{label}, 도구 호출 실패",
+@@ -5761,14 +5765,13 @@
+   "b6a29fff7c7c0808": "없음",
+   "54420465784bb1bd": "이전 댓글 불러오기",
+   "9d82ebf35bfb4043": "아직 활동이 없습니다.",
+-  "1cf216566c1ee064": "사용할 수 없는 프로젝트",
+   "b5ddadeb0810688c": "상태",
+   "93c1fc19d9bf1db0": "참여",
+   "d5a8b335d88b65bc": "{hidden}개 숨김",
+   "2160067266a61dd8": "전체",
+   "cd4ec4acf33c65b9": "{count, plural, other {레이블 {count}개}}",
+   "bfd20acb8b7dee6b": "모든 사람",
+-  "ad208e3e32c85029": "모두 숨기기",
++  "aead644e2cf1233f": "모두 표시",
+   "77ce79d865716719": "일치하는 프로젝트가 없습니다.",
+   "af7eb4f9c7f0f575": "필터",
+   "08247dd39b0c85ff": "담당자",
+@@ -6435,7 +6438,6 @@
+   "64d0189be492147c": "검사 세부 정보를 열 수 없습니다",
+   "600347ca50400a54": "검사를 불러오는 중…",
+   "1b381201aba745c2": "보고된 검사 없음",
+-  "aead644e2cf1233f": "모두 표시",
+   "a6d75a4380173c60": "검사 열기: {summary}",
+   "be3d1766bad18693": "검사: {summary}",
+   "425e4a3d6c5c2867": "{count, plural, other {{count}개 실패}}",
+@@ -9699,6 +9701,7 @@
+   "51497bd401292062": "길게 누르기",
+   "9d6cc6ac23312071": "두 번 누르기",
+   "f001fa7b329c8fbf": "성공한 항목 숨기기",
++  "ad208e3e32c85029": "모두 숨기기",
+   "c80e4bb3201efd71": "Zen",
+   "0cb9ffcd1fb46b0c": "상태만",
+   "cf0f7fc3df26fa75": "상태 및 메시지",
+@@ -9908,6 +9911,7 @@
+   "573ea5fdf293a9d6": "모든 체크아웃",
+   "470ad8c54049d1e1": "체크아웃 검색",
+   "7e2dfdd9f97fc027": "프로젝트 범위",
++  "1cf216566c1ee064": "사용할 수 없는 프로젝트",
+   "c1b8c351aa90f319": [
+     {
+       "t": "span",
+@@ -11510,6 +11514,8 @@
+   "5b8b854de7ee6f4d": "설치된 CLI 버전 최신 사용 가능 Codex Claude Cursor Grok fx Kiro OpenCode",
+   "64f12530d55d2ad1": "재개 실행 중 활성 중단된 작업 다시 시작 재부팅 머신 충돌 데스크톱 업데이트 자동",
+   "214a98497c4ed05d": "caffeinate 절전 방지 깨어 있기 전원 노트북 덮개 inhibit",
++  "f186d4f1f24efc34": "Load direnv environment",
++  "174e8ed57b585a50": "envrc nix flake devenv mise dev shell path tools environment variables agents",
+   "00469926c7027e2d": "균형 성능 배터리 절약 고급 git 가져오기 제공자 상태 새로 고침 호스트 전원 모니터 유휴 정책",
+   "54e33e572cc71746": "기본 작업 영역 모드 초안 로컬 워크트리",
+   "b2ece956b72c4a48": "하위 모듈",
+diff --git a/apps/web/src/i18n/translations/pt-BR.json b/apps/web/src/i18n/translations/pt-BR.json
+index 24ce6764ab..ad19a63d6b 100644
+--- a/apps/web/src/i18n/translations/pt-BR.json
++++ b/apps/web/src/i18n/translations/pt-BR.json
+@@ -4283,6 +4283,10 @@
+   "918cd5477d0c0e9b": "Mostrar mensagem completa",
+   "513b0929ca7dde1b": "Entrada da ferramenta\n{input}",
+   "c6e000ea79ae6a2b": "{status, select, inProgress {Lendo a thread “{title}”} completed {Leu a thread “{title}”} failed {Falha ao ler a thread “{title}”} declined {Recusou-se a ler a thread “{title}”} stopped {Parou de ler a thread “{title}”} other {Lendo a thread “{title}”}}",
++  "5b4f92a3a756615c": "Could not allow the .envrc",
++  "aa3492e231540ec4": "Allowed · applies to your next message",
++  "5a52bdeaa02b47a0": "Allowing…",
++  "fc61e2ab877a106d": "Allow .envrc",
+   "93435595c79fd659": "Limite de uso atingido. Tente novamente após {resetTime}.",
+   "5a2d803b3ea43f18": "Limite de uso atingido.",
+   "1afc4f46bc0675aa": "{label}, falha na chamada de ferramenta",
+@@ -5780,14 +5784,13 @@
+   "b6a29fff7c7c0808": "Ninguém",
+   "54420465784bb1bd": "Carregar comentários mais antigos",
+   "9d82ebf35bfb4043": "Nada aconteceu aqui ainda.",
+-  "1cf216566c1ee064": "Projeto indisponível",
+   "b5ddadeb0810688c": "Estado",
+   "93c1fc19d9bf1db0": "Envolvimento",
+   "d5a8b335d88b65bc": "{hidden} ocultos",
+   "2160067266a61dd8": "Qualquer",
+   "cd4ec4acf33c65b9": "{count, plural, one {{count} rótulo} other {{count} rótulos}}",
+   "bfd20acb8b7dee6b": "Qualquer pessoa",
+-  "ad208e3e32c85029": "Ocultar todas",
++  "aead644e2cf1233f": "Mostrar tudo",
+   "77ce79d865716719": "Nenhum projeto correspondente.",
+   "af7eb4f9c7f0f575": "Filtros",
+   "08247dd39b0c85ff": "Responsável",
+@@ -6463,7 +6466,6 @@
+   "64d0189be492147c": "Não foi possível abrir os detalhes da verificação",
+   "600347ca50400a54": "Carregando as verificações…",
+   "1b381201aba745c2": "Nenhuma verificação informada",
+-  "aead644e2cf1233f": "Mostrar tudo",
+   "a6d75a4380173c60": "Abrir verificações: {summary}",
+   "be3d1766bad18693": "Verificações: {summary}",
+   "425e4a3d6c5c2867": "{count, plural, one {{count} com falha} other {{count} com falha}}",
+@@ -9743,6 +9745,7 @@
+   "51497bd401292062": "Manter pressionado",
+   "9d6cc6ac23312071": "Pressionar duas vezes",
+   "f001fa7b329c8fbf": "Ocultar bem-sucedidas",
++  "ad208e3e32c85029": "Ocultar todas",
+   "c80e4bb3201efd71": "Zen",
+   "0cb9ffcd1fb46b0c": "Só status",
+   "cf0f7fc3df26fa75": "Status e mensagens",
+@@ -9952,6 +9955,7 @@
+   "573ea5fdf293a9d6": "Todos os checkouts",
+   "470ad8c54049d1e1": "Pesquisar checkouts",
+   "7e2dfdd9f97fc027": "Escopo de projeto",
++  "1cf216566c1ee064": "Projeto indisponível",
+   "c1b8c351aa90f319": [
+     {
+       "t": "span",
+@@ -11562,6 +11566,8 @@
+   "5b8b854de7ee6f4d": "cli instaladas versões mais novas disponíveis codex claude cursor grok fx kiro opencode",
+   "64f12530d55d2ad1": "retomar em execução ativo interrompido trabalho reiniciar reboot máquina falha atualização do desktop automaticamente",
+   "214a98497c4ed05d": "caffeinate repouso impedir manter acordado energia notebook tampa inibir",
++  "f186d4f1f24efc34": "Load direnv environment",
++  "174e8ed57b585a50": "envrc nix flake devenv mise dev shell path tools environment variables agents",
+   "00469926c7027e2d": "equilibrado desempenho economia de bateria avançado git fetch verificação de provedores atualizar host energia monitor política de ociosidade",
+   "54e33e572cc71746": "workspace padrão modo rascunho local worktree",
+   "b2ece956b72c4a48": "Submódulos",
+diff --git a/apps/web/src/i18n/translations/ru.json b/apps/web/src/i18n/translations/ru.json
+index a5f0c249e2..30cf81621e 100644
+--- a/apps/web/src/i18n/translations/ru.json
++++ b/apps/web/src/i18n/translations/ru.json
+@@ -4283,6 +4283,10 @@
+   "918cd5477d0c0e9b": "Показать сообщение полностью",
+   "513b0929ca7dde1b": "Входные данные инструмента\n{input}",
+   "c6e000ea79ae6a2b": "{status, select, inProgress {Чтение треда «{title}»} completed {Прочитан тред «{title}»} failed {Не удалось прочитать тред «{title}»} declined {Отклонено чтение треда «{title}»} stopped {Остановлено чтение треда «{title}»} other {Чтение треда «{title}»}}",
++  "5b4f92a3a756615c": "Could not allow the .envrc",
++  "aa3492e231540ec4": "Allowed · applies to your next message",
++  "5a52bdeaa02b47a0": "Allowing…",
++  "fc61e2ab877a106d": "Allow .envrc",
+   "93435595c79fd659": "Достигнут лимит использования. Повторите после {resetTime}.",
+   "5a2d803b3ea43f18": "Достигнут лимит использования.",
+   "1afc4f46bc0675aa": "{label}, ошибка вызова инструмента",
+@@ -5780,14 +5784,13 @@
+   "b6a29fff7c7c0808": "Нет",
+   "54420465784bb1bd": "Загрузить старые комментарии",
+   "9d82ebf35bfb4043": "Здесь пока ничего не происходило.",
+-  "1cf216566c1ee064": "Проект недоступен",
+   "b5ddadeb0810688c": "Состояние",
+   "93c1fc19d9bf1db0": "Участие",
+   "d5a8b335d88b65bc": "Скрыто: {hidden}",
+   "2160067266a61dd8": "Любая",
+   "cd4ec4acf33c65b9": "{count, plural, one {{count} метка} few {{count} метки} many {{count} меток} other {{count} метки}}",
+   "bfd20acb8b7dee6b": "Любой",
+-  "ad208e3e32c85029": "Скрывать все",
++  "aead644e2cf1233f": "Показать все",
+   "77ce79d865716719": "Нет подходящих проектов.",
+   "af7eb4f9c7f0f575": "Фильтры",
+   "08247dd39b0c85ff": "Исполнитель",
+@@ -6463,7 +6466,6 @@
+   "64d0189be492147c": "Не удалось открыть подробности проверки",
+   "600347ca50400a54": "Загрузка проверок…",
+   "1b381201aba745c2": "Нет проверок",
+-  "aead644e2cf1233f": "Показать все",
+   "a6d75a4380173c60": "Открыть проверки: {summary}",
+   "be3d1766bad18693": "Проверки: {summary}",
+   "425e4a3d6c5c2867": "{count, plural, one {Ошибок: {count}} few {Ошибок: {count}} many {Ошибок: {count}} other {Ошибок: {count}}}",
+@@ -9746,6 +9748,7 @@
+   "51497bd401292062": "Удержание",
+   "9d6cc6ac23312071": "Двойное нажатие",
+   "f001fa7b329c8fbf": "Скрывать успешные",
++  "ad208e3e32c85029": "Скрывать все",
+   "c80e4bb3201efd71": "Дзен",
+   "0cb9ffcd1fb46b0c": "Только статус",
+   "cf0f7fc3df26fa75": "Статус и сообщения",
+@@ -9955,6 +9958,7 @@
+   "573ea5fdf293a9d6": "Все копии",
+   "470ad8c54049d1e1": "Поиск копий",
+   "7e2dfdd9f97fc027": "Область проектов",
++  "1cf216566c1ee064": "Проект недоступен",
+   "c1b8c351aa90f319": [
+     {
+       "t": "span",
+@@ -11563,6 +11567,8 @@
+   "5b8b854de7ee6f4d": "установленные cli версии новее доступно codex claude cursor grok fx kiro opencode",
+   "64f12530d55d2ad1": "возобновить выполняющаяся активная прерванная работа перезапуск перезагрузка компьютер сбой обновление десктоп автоматически",
+   "214a98497c4ed05d": "caffeinate сон не давать уснуть бодрствование питание ноутбук крышка блокировать",
++  "f186d4f1f24efc34": "Load direnv environment",
++  "174e8ed57b585a50": "envrc nix flake devenv mise dev shell path tools environment variables agents",
+   "00469926c7027e2d": "сбалансированный производительность экономия батареи дополнительно git fetch проверка провайдеров обновление питание хоста монитор простой политика",
+   "54e33e572cc71746": "рабочая область по умолчанию режим черновик локально рабочее дерево",
+   "b2ece956b72c4a48": "Подмодули",
+diff --git a/apps/web/src/i18n/translations/sv.json b/apps/web/src/i18n/translations/sv.json
+index 353df28a8a..8bedd9a5d9 100644
+--- a/apps/web/src/i18n/translations/sv.json
++++ b/apps/web/src/i18n/translations/sv.json
+@@ -4284,6 +4284,10 @@
+   "918cd5477d0c0e9b": "Visa hela meddelandet",
+   "513b0929ca7dde1b": "Verktygsindata\n{input}",
+   "c6e000ea79ae6a2b": "{status, select, inProgress {Läser tråden ”{title}”} completed {Läste tråden ”{title}”} failed {Kunde inte läsa tråden ”{title}”} declined {Avböjde att läsa tråden ”{title}”} stopped {Slutade läsa tråden ”{title}”} other {Läser tråden ”{title}”}}",
++  "5b4f92a3a756615c": "Could not allow the .envrc",
++  "aa3492e231540ec4": "Allowed · applies to your next message",
++  "5a52bdeaa02b47a0": "Allowing…",
++  "fc61e2ab877a106d": "Allow .envrc",
+   "93435595c79fd659": "Användningsgränsen har nåtts. Försök igen efter {resetTime}.",
+   "5a2d803b3ea43f18": "Användningsgränsen har nåtts.",
+   "1afc4f46bc0675aa": "{label}, verktygsanropet misslyckades",
+@@ -5781,14 +5785,13 @@
+   "b6a29fff7c7c0808": "Ingen",
+   "54420465784bb1bd": "Läs in äldre kommentarer",
+   "9d82ebf35bfb4043": "Inget har hänt här än.",
+-  "1cf216566c1ee064": "Projektet är inte tillgängligt",
+   "b5ddadeb0810688c": "Status",
+   "93c1fc19d9bf1db0": "Inblandning",
+   "d5a8b335d88b65bc": "{hidden} dolda",
+   "2160067266a61dd8": "Alla",
+   "cd4ec4acf33c65b9": "{count, plural, one {{count} etikett} other {{count} etiketter}}",
+   "bfd20acb8b7dee6b": "Vem som helst",
+-  "ad208e3e32c85029": "Dölj alla",
++  "aead644e2cf1233f": "Visa alla",
+   "77ce79d865716719": "Inga matchande projekt.",
+   "af7eb4f9c7f0f575": "Filter",
+   "08247dd39b0c85ff": "Tilldelad",
+@@ -6469,7 +6472,6 @@
+   "64d0189be492147c": "Det gick inte att öppna kontrolldetaljer",
+   "600347ca50400a54": "Läser in kontroller…",
+   "1b381201aba745c2": "Inga kontroller rapporterade",
+-  "aead644e2cf1233f": "Visa alla",
+   "a6d75a4380173c60": "Öppna kontroller: {summary}",
+   "be3d1766bad18693": "Kontroller: {summary}",
+   "425e4a3d6c5c2867": "{count, plural, one {{count} misslyckades} other {{count} misslyckades}}",
+@@ -9752,6 +9754,7 @@
+   "51497bd401292062": "Håll ned",
+   "9d6cc6ac23312071": "Dubbeltryck",
+   "f001fa7b329c8fbf": "Dölj lyckade",
++  "ad208e3e32c85029": "Dölj alla",
+   "c80e4bb3201efd71": "Zen",
+   "0cb9ffcd1fb46b0c": "Endast status",
+   "cf0f7fc3df26fa75": "Status och meddelanden",
+@@ -9961,6 +9964,7 @@
+   "573ea5fdf293a9d6": "Alla utcheckningar",
+   "470ad8c54049d1e1": "Sök utcheckningar",
+   "7e2dfdd9f97fc027": "Projektomfång",
++  "1cf216566c1ee064": "Projektet är inte tillgängligt",
+   "c1b8c351aa90f319": [
+     {
+       "t": "span",
+@@ -11571,6 +11575,8 @@
+   "5b8b854de7ee6f4d": "installerade cli versioner nyare tillgänglig codex claude cursor grok fx kiro opencode",
+   "64f12530d55d2ad1": "återuppta pågående aktiv avbrutet arbete omstart starta om dator krasch skrivbord uppdatering automatiskt",
+   "214a98497c4ed05d": "caffeinate viloläge förhindra håll vaken ström laptop lock förhindra",
++  "f186d4f1f24efc34": "Load direnv environment",
++  "174e8ed57b585a50": "envrc nix flake devenv mise dev shell path tools environment variables agents",
+   "00469926c7027e2d": "balanserad prestanda batterisparläge avancerat git fetch leverantör hälsa uppdatera värd ström övervakning inaktiv policy",
+   "54e33e572cc71746": "standard arbetsyta läge utkast lokal worktree",
+   "b2ece956b72c4a48": "Submoduler",
+diff --git a/apps/web/src/i18n/translations/zh.json b/apps/web/src/i18n/translations/zh.json
+index 4acdfc14e2..a750d7ac39 100644
+--- a/apps/web/src/i18n/translations/zh.json
++++ b/apps/web/src/i18n/translations/zh.json
+@@ -4290,6 +4290,10 @@
+   "918cd5477d0c0e9b": "显示完整消息",
+   "513b0929ca7dde1b": "工具输入\n{input}",
+   "c6e000ea79ae6a2b": "{status, select, inProgress {正在读取会话“{title}”} completed {已读取会话“{title}”} failed {读取会话“{title}”失败} declined {已拒绝读取会话“{title}”} stopped {已停止读取会话“{title}”} other {正在读取会话“{title}”}}",
++  "5b4f92a3a756615c": "Could not allow the .envrc",
++  "aa3492e231540ec4": "Allowed · applies to your next message",
++  "5a52bdeaa02b47a0": "Allowing…",
++  "fc61e2ab877a106d": "Allow .envrc",
+   "93435595c79fd659": "已达到用量限制。请在 {resetTime} 后重试。",
+   "5a2d803b3ea43f18": "已达到用量上限。",
+   "1afc4f46bc0675aa": "{label}，工具调用失败",
+@@ -5787,14 +5791,13 @@
+   "b6a29fff7c7c0808": "无",
+   "54420465784bb1bd": "加载较早的评论",
+   "9d82ebf35bfb4043": "这里还没有任何动态。",
+-  "1cf216566c1ee064": "不可用的项目",
+   "b5ddadeb0810688c": "状态",
+   "93c1fc19d9bf1db0": "参与方式",
+   "d5a8b335d88b65bc": "已隐藏 {hidden} 个",
+   "2160067266a61dd8": "任意",
+   "cd4ec4acf33c65b9": "{count, plural, other {{count} 个标签}}",
+   "bfd20acb8b7dee6b": "任何人",
+-  "ad208e3e32c85029": "全部隐藏",
++  "aead644e2cf1233f": "全部显示",
+   "77ce79d865716719": "没有匹配的项目。",
+   "af7eb4f9c7f0f575": "筛选条件",
+   "08247dd39b0c85ff": "受理人",
+@@ -6475,7 +6478,6 @@
+   "64d0189be492147c": "无法打开检查详情",
+   "600347ca50400a54": "正在加载检查…",
+   "1b381201aba745c2": "未报告任何检查",
+-  "aead644e2cf1233f": "全部显示",
+   "a6d75a4380173c60": "打开检查：{summary}",
+   "be3d1766bad18693": "检查：{summary}",
+   "425e4a3d6c5c2867": "{count, plural, other {{count} 个失败}}",
+@@ -9759,6 +9761,7 @@
+   "51497bd401292062": "长按",
+   "9d6cc6ac23312071": "连按两次",
+   "f001fa7b329c8fbf": "隐藏成功的调用",
++  "ad208e3e32c85029": "全部隐藏",
+   "c80e4bb3201efd71": "专注模式",
+   "0cb9ffcd1fb46b0c": "仅状态",
+   "cf0f7fc3df26fa75": "状态和消息",
+@@ -9968,6 +9971,7 @@
+   "573ea5fdf293a9d6": "所有工作副本",
+   "470ad8c54049d1e1": "搜索工作副本",
+   "7e2dfdd9f97fc027": "项目范围",
++  "1cf216566c1ee064": "不可用的项目",
+   "c1b8c351aa90f319": [
+     {
+       "t": "span",
+@@ -11587,6 +11591,8 @@
+   "5b8b854de7ee6f4d": "已安装 cli 版本 更新 可用 codex claude cursor grok fx kiro opencode",
+   "64f12530d55d2ad1": "恢复 运行中 活跃 中断 工作 重启 重新启动 机器 崩溃 桌面 更新 自动",
+   "214a98497c4ed05d": "caffeinate 睡眠 阻止 保持唤醒 电源 笔记本 盖子 抑制",
++  "f186d4f1f24efc34": "Load direnv environment",
++  "174e8ed57b585a50": "envrc nix flake devenv mise dev shell path tools environment variables agents",
+   "00469926c7027e2d": "平衡 性能 省电 高级 git 获取 提供方 健康 刷新 主机 电源 监控 空闲 策略",
+   "54e33e572cc71746": "默认 工作区 模式 草稿 本地 工作树",
+   "b2ece956b72c4a48": "子模块",
 diff --git a/apps/web/src/session-logic.ts b/apps/web/src/session-logic.ts
-index e73b250d27..213e5395d2 100644
+index 482c927564..f2b192eff7 100644
 --- a/apps/web/src/session-logic.ts
 +++ b/apps/web/src/session-logic.ts
-@@ -7,6 +7,7 @@ import {
+@@ -8,6 +8,7 @@ import {
    type OrchestrationV2PlanArtifact,
    type OrchestrationV2ProjectedTurnItem,
    type OrchestrationV2RunAttempt,
@@ -1503,7 +2336,7 @@ index e73b250d27..213e5395d2 100644
    type OrchestrationV2TurnItem,
    type RunId,
    type ToolActivitySurface,
-@@ -87,6 +88,8 @@ export interface WorkLogEntry {
+@@ -84,6 +85,8 @@ export interface WorkLogEntry {
    readonly toolIcon?: ToolActivityIcon;
    readonly toolSource?: ToolActivitySource;
    readonly sourceActivityKind?: string;
@@ -1512,7 +2345,7 @@ index e73b250d27..213e5395d2 100644
    readonly taskId?: string;
    readonly agentRole?: string;
    readonly toolData?: unknown;
-@@ -429,6 +432,8 @@ function projectedWorkEntry(row: OrchestrationV2ProjectedTurnItem): WorkLogEntry
+@@ -455,6 +458,8 @@ function projectedWorkEntry(
          ...common,
          label: item.message,
          ...(item.level === "info" ? {} : { sourceActivityKind: "runtime.warning" }),
@@ -1520,12 +2353,12 @@ index e73b250d27..213e5395d2 100644
 +        ...(item.action ? { warningAction: item.action } : {}),
        };
      case "error": {
-       const presentation = providerErrorPresentation(item);
+       const presentation = providerErrorPresentation(item, resolve);
 diff --git a/docs/user/project-settings.md b/docs/user/project-settings.md
-index 899640ad23..8bde48f381 100644
+index 84ffbbebd5..0f8e55782b 100644
 --- a/docs/user/project-settings.md
 +++ b/docs/user/project-settings.md
-@@ -217,6 +217,27 @@ or newer. Git's normal checkout is also used for worktrees on a different drive
+@@ -226,6 +226,27 @@ or newer. Git's normal checkout is also used for worktrees on a different drive
  directory, sparse checkouts, repositories whose attributes use filters such as Git LFS, and
  repositories whose checkout settings changed.
  
@@ -1554,10 +2387,10 @@ index 899640ad23..8bde48f381 100644
  
  Open **Settings → Worktrees → Cleanup** to enable automatic cleanup on one machine or all connected
 diff --git a/packages/client-runtime/src/state/threadCommands.ts b/packages/client-runtime/src/state/threadCommands.ts
-index 0e9de03f5c..9240ceeefe 100644
+index 9f2edf5cfa..387fffc3a7 100644
 --- a/packages/client-runtime/src/state/threadCommands.ts
 +++ b/packages/client-runtime/src/state/threadCommands.ts
-@@ -421,6 +421,10 @@ export function createThreadEnvironmentAtoms<R, E>(
+@@ -435,6 +435,10 @@ export function createThreadEnvironmentAtoms<R, E>(
        scheduler,
        concurrency,
      }),
@@ -1569,10 +2402,10 @@ index 0e9de03f5c..9240ceeefe 100644
    const commands = {
      ...sent,
 diff --git a/packages/contracts/src/clientRpcPermissions.ts b/packages/contracts/src/clientRpcPermissions.ts
-index 8681c1ea8a..772a3f0011 100644
+index 0b6164871a..17d39af823 100644
 --- a/packages/contracts/src/clientRpcPermissions.ts
 +++ b/packages/contracts/src/clientRpcPermissions.ts
-@@ -69,6 +69,7 @@ export const CLIENT_GUARDED_RPC_SCOPES = {
+@@ -77,6 +77,7 @@ export const CLIENT_GUARDED_RPC_SCOPES = {
    [WS_METHODS.scheduledTasksDelete]: AuthOrchestrationOperateScope,
    [WS_METHODS.scheduledTasksRunNow]: AuthOrchestrationOperateScope,
    [WS_METHODS.scheduledTasksRotateWebhookToken]: AuthOrchestrationOperateScope,
@@ -1581,19 +2414,19 @@ index 8681c1ea8a..772a3f0011 100644
    // Force stop kills agent processes, as Stop on a terminal does.
    [ORCHESTRATION_V2_WS_METHODS.forceStopThread]: AuthOrchestrationOperateScope,
 diff --git a/packages/contracts/src/index.ts b/packages/contracts/src/index.ts
-index 8dd47df33a..8052d533ef 100644
+index c005fdd039..b6e73887af 100644
 --- a/packages/contracts/src/index.ts
 +++ b/packages/contracts/src/index.ts
-@@ -73,3 +73,4 @@ export * from "./secretRequest.ts";
+@@ -74,3 +74,4 @@ export * from "./secretRequest.ts";
  export * from "./secretReference.ts";
  export * from "./settingsSecretValue.ts";
  export * from "./clientRpcPermissions.ts";
 +export * from "./projectEnvironment.ts";
 diff --git a/packages/contracts/src/orchestrationV2.ts b/packages/contracts/src/orchestrationV2.ts
-index 38d2e98ef7..f496399343 100644
+index 573607abc7..a21c4d5cda 100644
 --- a/packages/contracts/src/orchestrationV2.ts
 +++ b/packages/contracts/src/orchestrationV2.ts
-@@ -1598,6 +1598,12 @@ export const OrchestrationV2ModelSwitch = Schema.Struct({
+@@ -1644,6 +1644,12 @@ export const OrchestrationV2ModelSwitch = Schema.Struct({
  export type OrchestrationV2ModelSwitch = typeof OrchestrationV2ModelSwitch.Type;
  
  const AssistantMessagePhase = Schema.Literals(["commentary", "partial_answer", "final_answer"]);
@@ -1606,7 +2439,7 @@ index 38d2e98ef7..f496399343 100644
  
  const OrchestrationV2TurnItemBaseFields = {
    /** Wire-only cursor for collapsed work; persisted items keep their complete history. */
-@@ -1839,6 +1845,8 @@ export const OrchestrationV2TurnItem = Schema.Union([
+@@ -1885,6 +1891,8 @@ export const OrchestrationV2TurnItem = Schema.Union([
      type: Schema.Literal("system_notice"),
      message: Schema.String,
      level: Schema.optional(OrchestrationV2SystemNoticeLevel),
@@ -1615,7 +2448,7 @@ index 38d2e98ef7..f496399343 100644
    }),
    Schema.Struct({
      ...OrchestrationV2TurnItemBaseFields,
-@@ -2720,6 +2728,8 @@ export const OrchestrationV2TurnItemJson = Schema.Union([
+@@ -2769,6 +2777,8 @@ export const OrchestrationV2TurnItemJson = Schema.Union([
      type: Schema.Literal("system_notice"),
      message: Schema.String,
      level: Schema.optional(OrchestrationV2SystemNoticeLevel),
@@ -1649,7 +2482,7 @@ index 0000000000..37a2292453
 +});
 +export type ProjectEnvironmentAllowDirenvResult = typeof ProjectEnvironmentAllowDirenvResult.Type;
 diff --git a/packages/contracts/src/rpc.ts b/packages/contracts/src/rpc.ts
-index e1d392cd08..fc7b67ae54 100644
+index 41733dae56..42f4458532 100644
 --- a/packages/contracts/src/rpc.ts
 +++ b/packages/contracts/src/rpc.ts
 @@ -119,6 +119,10 @@ import {
@@ -1663,7 +2496,7 @@ index e1d392cd08..fc7b67ae54 100644
  import {
    WorktreeSetupCancelInput,
    WorktreeSetupCancelResult,
-@@ -621,6 +625,7 @@ export const WS_METHODS = {
+@@ -663,6 +667,7 @@ export const WS_METHODS = {
    vcsRefreshBranch: "vcs.refreshBranch",
    subscribeWorktreeSetup: "subscribeWorktreeSetup",
    worktreeSetupCancel: "worktreeSetup.cancel",
@@ -1671,7 +2504,7 @@ index e1d392cd08..fc7b67ae54 100644
    subscribeTerminalMetadata: "subscribeTerminalMetadata",
    subscribePreviewEvents: "subscribePreviewEvents",
    subscribeDiscoveredLocalServers: "subscribeDiscoveredLocalServers",
-@@ -1566,6 +1571,12 @@ const WsWorktreeSetupCancelRpc = Rpc.make(WS_METHODS.worktreeSetupCancel, {
+@@ -1710,6 +1715,12 @@ const WsWorktreeSetupCancelRpc = Rpc.make(WS_METHODS.worktreeSetupCancel, {
    error: EnvironmentAuthorizationError,
  });
  
@@ -1684,7 +2517,7 @@ index e1d392cd08..fc7b67ae54 100644
  const WsGitRunStackedActionRpc = Rpc.make(WS_METHODS.gitRunStackedAction, {
    payload: GitRunStackedActionInput,
    success: GitActionProgressEvent,
-@@ -2261,6 +2272,7 @@ export const WsRpcGroup = RpcGroup.make(
+@@ -2419,6 +2430,7 @@ export const WsRpcGroup = RpcGroup.make(
    WsVcsRefreshBranchRpc,
    WsSubscribeWorktreeSetupRpc,
    WsWorktreeSetupCancelRpc,
@@ -1693,10 +2526,10 @@ index e1d392cd08..fc7b67ae54 100644
    WsVcsRefreshStatusRpc,
    WsGitRunStackedActionRpc,
 diff --git a/packages/contracts/src/settings.ts b/packages/contracts/src/settings.ts
-index 0013e28898..05878ec27f 100644
+index 378b8af0e4..b130dc7ed8 100644
 --- a/packages/contracts/src/settings.ts
 +++ b/packages/contracts/src/settings.ts
-@@ -1180,6 +1180,7 @@ export const PROJECT_SCOPED_SERVER_SETTING_KEYS = [
+@@ -1181,6 +1181,7 @@ export const PROJECT_SCOPED_SERVER_SETTING_KEYS = [
    "defaultProjectScripts",
    "enableAgentBrowserAccess",
    "enableAgentDeviceAccess",
@@ -1704,7 +2537,7 @@ index 0013e28898..05878ec27f 100644
    "textGenerationModelSelection",
    "threadTitleInstructions",
    "sourceControlWriterModelSelection",
-@@ -1218,6 +1219,7 @@ export const ProjectSettingsOverrides = Schema.Struct({
+@@ -1219,6 +1220,7 @@ export const ProjectSettingsOverrides = Schema.Struct({
    defaultProjectScripts: Schema.optionalKey(Schema.Array(ProjectScript)),
    enableAgentBrowserAccess: Schema.optionalKey(Schema.Boolean),
    enableAgentDeviceAccess: Schema.optionalKey(Schema.Boolean),
@@ -1712,7 +2545,7 @@ index 0013e28898..05878ec27f 100644
    textGenerationModelSelection: Schema.optionalKey(ModelSelection),
    threadTitleInstructions: Schema.optionalKey(TrimmedString),
    sourceControlWriterModelSelection: Schema.optionalKey(Schema.NullOr(ModelSelection)),
-@@ -1437,6 +1439,12 @@ export const ServerSettings = Schema.Struct({
+@@ -1445,6 +1447,12 @@ export const ServerSettings = Schema.Struct({
    projectSettingsFolded: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(false))),
  
    enableAgentDeviceAccess: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(false))),
@@ -1725,7 +2558,7 @@ index 0013e28898..05878ec27f 100644
    /** Enabling the Device panel must not grant providers device control. */
    enableDeviceSupport: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(false))),
    deviceOnboardingCompleted: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(false))),
-@@ -1889,6 +1897,7 @@ export const ServerSettingsPatch = Schema.Struct({
+@@ -1902,6 +1910,7 @@ export const ServerSettingsPatch = Schema.Struct({
      ),
    ),
    enableAgentDeviceAccess: Schema.optionalKey(Schema.Boolean),
@@ -1734,10 +2567,10 @@ index 0013e28898..05878ec27f 100644
    deviceOnboardingCompleted: Schema.optionalKey(Schema.Boolean),
    deviceHosts: Schema.optionalKey(SshDeviceHostConfigs),
 diff --git a/packages/provider-acp-registry/src/server/adapter.ts b/packages/provider-acp-registry/src/server/adapter.ts
-index 105778db7e..498dd2228d 100644
+index ce5a2b9453..b10f97d65a 100644
 --- a/packages/provider-acp-registry/src/server/adapter.ts
 +++ b/packages/provider-acp-registry/src/server/adapter.ts
-@@ -52,6 +52,7 @@ import * as ProviderEventLoggers from "@t3tools/provider-core/server/ProviderEve
+@@ -53,6 +53,7 @@ import * as ProviderEventLoggers from "@t3tools/provider-core/server/ProviderEve
  import { mergeProviderInstanceEnvironment } from "@t3tools/provider-core/server/instanceEnvironment";
  import * as IdAllocator from "@t3tools/provider-core/server/IdAllocator";
  import { makeProviderFailure } from "@t3tools/provider-core/server/failure";
@@ -1745,7 +2578,7 @@ index 105778db7e..498dd2228d 100644
  import {
    ProviderAdapterDriverCreateError,
    type ProviderAdapterDriver,
-@@ -147,7 +148,7 @@ function makeAcpRegistryRuntime(
+@@ -148,7 +149,7 @@ function makeAcpRegistryRuntime(
      ChildProcessSpawner.ChildProcessSpawner | SecureRandom.SecureRandom | Scope.Scope
    > =>
      Effect.gen(function* () {
@@ -1754,7 +2587,7 @@ index 105778db7e..498dd2228d 100644
        const resolved = yield* catalog
          .resolve(options.settings, input.cwd, options.environment)
          .pipe(
-@@ -163,11 +164,17 @@ function makeAcpRegistryRuntime(
+@@ -164,11 +165,17 @@ function makeAcpRegistryRuntime(
          AcpSessionRuntime.layer({
            ...runtimeInput,
            spawn:
@@ -1775,10 +2608,10 @@ index 105778db7e..498dd2228d 100644
            ...(options.settings.authMethodId ? { authMethodId: options.settings.authMethodId } : {}),
            customModels: readCustomModelEntries(options.settings.customModels).map(
 diff --git a/packages/provider-acp/src/server/adapter.ts b/packages/provider-acp/src/server/adapter.ts
-index 058ff68c4b..c3fa6090ff 100644
+index a00ea8625e..9894b31658 100644
 --- a/packages/provider-acp/src/server/adapter.ts
 +++ b/packages/provider-acp/src/server/adapter.ts
-@@ -75,6 +75,7 @@ import { makeAcpMcpOverAcpBridge, type AcpMcpOverAcpBridge } from "./mcpOverAcpB
+@@ -76,6 +76,7 @@ import { makeAcpMcpOverAcpBridge, type AcpMcpOverAcpBridge } from "./mcpOverAcpB
  import { mcpToolPresentation } from "@t3tools/provider-core/server/mcpToolPresentation";
  import * as McpProviderSessions from "@t3tools/provider-core/server/McpProviderSessions";
  import * as McpProviderSession from "@t3tools/provider-core/server/mcpSession";
@@ -1786,7 +2619,7 @@ index 058ff68c4b..c3fa6090ff 100644
  import {
    applyAcpAgentTerminalUpdate,
    acpContentBlockDisplayText,
-@@ -208,6 +209,8 @@ export interface AcpAdapterV2RuntimeInput {
+@@ -214,6 +215,8 @@ export interface AcpAdapterV2RuntimeInput {
    readonly acpMcpServers?: ReadonlyArray<EffectAcpSchema.McpServer>;
    readonly httpMcpServers?: ReadonlyArray<EffectAcpSchema.McpServer>;
    readonly processEnvironment?: NodeJS.ProcessEnv;
@@ -1795,7 +2628,7 @@ index 058ff68c4b..c3fa6090ff 100644
    readonly resumeSessionId?: string;
    readonly interruptPromptOnCancel?: boolean;
    readonly sessionMeta?: NonNullable<AcpSessionRuntime.AcpSessionRuntimeOptions["sessionMeta"]>;
-@@ -1944,7 +1947,10 @@ export const makeAcpAdapterV2 = Effect.fn("makeAcpAdapterV2")(function* (
+@@ -2090,7 +2093,10 @@ export const makeAcpAdapterV2 = Effect.fn("makeAcpAdapterV2")(function* (
              ? undefined
              : yield* makeAcpClientTerminals({
                  defaultCwd: input.runtimePolicy.cwd ?? process.cwd(),
@@ -1807,7 +2640,7 @@ index 058ff68c4b..c3fa6090ff 100644
                  shellCommands: options.clientTerminals.shellCommands,
                  environmentForSession: (sessionId) => {
                    const remembered = terminalEnvironmentBySessionId.get(sessionId);
-@@ -2574,6 +2580,9 @@ export const makeAcpAdapterV2 = Effect.fn("makeAcpAdapterV2")(function* (
+@@ -2763,6 +2769,9 @@ export const makeAcpAdapterV2 = Effect.fn("makeAcpAdapterV2")(function* (
            onTermination: AcpAdapterV2RuntimeInput["onTermination"] = () =>
              handleRuntimeTerminationAtGeneration(runtimeGeneration),
          ): AcpAdapterV2RuntimeInput => {
@@ -1817,7 +2650,7 @@ index 058ff68c4b..c3fa6090ff 100644
            return {
              cwd: input.runtimePolicy.cwd ?? process.cwd(),
              runtimePolicy: input.runtimePolicy,
-@@ -2583,6 +2592,7 @@ export const makeAcpAdapterV2 = Effect.fn("makeAcpAdapterV2")(function* (
+@@ -2772,6 +2781,7 @@ export const makeAcpAdapterV2 = Effect.fn("makeAcpAdapterV2")(function* (
              ...(mcpContext.processEnvironment === undefined
                ? {}
                : { processEnvironment: mcpContext.processEnvironment }),
@@ -1826,10 +2659,10 @@ index 058ff68c4b..c3fa6090ff 100644
              interruptPromptOnCancel: flavor.interruptPromptOnCancel ?? false,
              clientCapabilities: {
 diff --git a/packages/provider-core/package.json b/packages/provider-core/package.json
-index 3ff646eaa1..a7f275cd39 100644
+index 66942a0c95..504e0a107d 100644
 --- a/packages/provider-core/package.json
 +++ b/packages/provider-core/package.json
-@@ -27,6 +27,10 @@
+@@ -31,6 +31,10 @@
        "types": "./src/server/collectStreamText.ts",
        "import": "./src/server/collectStreamText.ts"
      },
@@ -1927,10 +2760,10 @@ index db5a136697..e2f02a1983 100644
          })),
      // Auto prompts represent classifier refusals and must reach the user.
 diff --git a/packages/provider-opencode/src/server/adapter.ts b/packages/provider-opencode/src/server/adapter.ts
-index 6029776286..0f8601e12a 100644
+index e41dc10ec9..2b430a0bea 100644
 --- a/packages/provider-opencode/src/server/adapter.ts
 +++ b/packages/provider-opencode/src/server/adapter.ts
-@@ -58,6 +58,7 @@ import * as ProviderHost from "@t3tools/provider-core/server/ProviderHost";
+@@ -60,6 +60,7 @@ import * as ProviderHost from "@t3tools/provider-core/server/ProviderHost";
  import { mcpToolPresentation } from "@t3tools/provider-core/server/mcpToolPresentation";
  import * as McpProviderSessions from "@t3tools/provider-core/server/McpProviderSessions";
  import * as ProviderEventLoggers from "@t3tools/provider-core/server/ProviderEventLoggers";
@@ -1938,7 +2771,7 @@ index 6029776286..0f8601e12a 100644
  import {
    structuralProtocolMethod,
    summarizeNativeProtocolPayload,
-@@ -1052,7 +1053,10 @@ export const makeOpenCodeAdapterV2 = Effect.fn("makeOpenCodeAdapterV2")(function
+@@ -1057,7 +1058,10 @@ export const makeOpenCodeAdapterV2 = Effect.fn("makeOpenCodeAdapterV2")(function
            ...(settingsSecretLiteral(options.settings.serverPassword)
              ? { serverPassword: settingsSecretLiteral(options.settings.serverPassword) }
              : {}),
@@ -1948,10 +2781,10 @@ index 6029776286..0f8601e12a 100644
 +            input.threadId,
 +          ),
          });
-         const client = runtime.createOpenCodeSdkClient({
-           baseUrl: connection.url,
+         const broken = brokenVersionDetail({
+           name: "OpenCode",
 diff --git a/packages/provider-pi/src/server/adapter.ts b/packages/provider-pi/src/server/adapter.ts
-index 6694623d98..3ca32a9f52 100644
+index a31b64ac30..f9e4ae2b66 100644
 --- a/packages/provider-pi/src/server/adapter.ts
 +++ b/packages/provider-pi/src/server/adapter.ts
 @@ -53,6 +53,7 @@ import { mergeProviderInstanceEnvironment } from "@t3tools/provider-core/server/
@@ -1962,7 +2795,7 @@ index 6694623d98..3ca32a9f52 100644
  import {
    ProviderAdapterDriverCreateError,
    type ProviderAdapterDriver,
-@@ -526,7 +527,10 @@ export const makePiAdapterV2 = Effect.fn("makePiAdapterV2")(function* (
+@@ -539,7 +540,10 @@ export const makePiAdapterV2 = Effect.fn("makePiAdapterV2")(function* (
            const launch = buildPiRpcLaunch({
              launchArgs: resolvedLaunchArgs.args,
              // PortScanner.AGENT_THREAD_ENV, as a literal because this package cannot reach apps/server.

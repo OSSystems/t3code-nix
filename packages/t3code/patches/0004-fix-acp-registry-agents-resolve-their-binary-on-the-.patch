@@ -1,4 +1,4 @@
-From 2d5e25f78a888bd5ec6e2727d2200018cdda3437 Mon Sep 17 00:00:00 2001
+From 8b52bb85e6f2247bd2f672fe803f0f0729908457 Mon Sep 17 00:00:00 2001
 From: Otavio Salvador <otavio@ossystems.com.br>
 Date: Fri, 30 Oct 2026 07:59:53 -0300
 Subject: [PATCH 04/13] fix(acp): registry agents resolve their binary on the
@@ -58,10 +58,10 @@ index 0000000000..14524e244f
 +  );
 +});
 diff --git a/packages/provider-acp-registry/src/server/adapter.ts b/packages/provider-acp-registry/src/server/adapter.ts
-index 498dd2228d..2b0774198c 100644
+index b10f97d65a..0e53f306a0 100644
 --- a/packages/provider-acp-registry/src/server/adapter.ts
 +++ b/packages/provider-acp-registry/src/server/adapter.ts
-@@ -136,6 +136,29 @@ export function acpRegistryPromptFailure(agentId: string, cause: unknown) {
+@@ -137,6 +137,29 @@ export function acpRegistryPromptFailure(agentId: string, cause: unknown) {
    });
  }
  
@@ -91,7 +91,7 @@ index 498dd2228d..2b0774198c 100644
  function makeAcpRegistryRuntime(
    options: AcpRegistryAdapterV2Options,
    catalog: AcpRegistrySupport.AcpRegistryCatalog["Service"],
-@@ -149,33 +172,26 @@ function makeAcpRegistryRuntime(
+@@ -150,33 +173,26 @@ function makeAcpRegistryRuntime(
    > =>
      Effect.gen(function* () {
        const { processEnvironment, direnvEnvironment, ...runtimeInput } = input;
