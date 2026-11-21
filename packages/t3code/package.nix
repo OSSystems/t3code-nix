@@ -1,12 +1,17 @@
 {
   lib,
+  autoPatchelfHook,
   callPackage,
   chromium,
+  electron_44,
   fetchFromGitHub,
   fetchPnpmDeps,
+  makeDesktopItem,
   pnpm_12,
   rustPlatform,
+  stdenv,
   t3code,
+  vulkan-loader,
 }:
 
 let
@@ -38,6 +43,10 @@ let
     ./patches/0013-feat-choose-the-flake-dev-shell-a-project-s-direnv-e.patch
   ];
 
+  captureHelpers = lib.genAttrs [ "kde" "hyprland" ] (
+    backend: callPackage ./capture-helper.nix { inherit backend src version; }
+  );
+
   unwrapped = t3code.unwrapped.overrideAttrs (
     finalAttrs: oldAttrs: {
       inherit version src patches;
@@ -65,6 +74,72 @@ let
       ''
       + (oldAttrs.preBuild or "");
 
+      # Backport of https://github.com/NixOS/nixpkgs/pull/589125: voice input loads speech
+      # libraries that need libstdc++ and Vulkan, and window capture needs the GNOME extension
+      # and the KDE and Hyprland helpers.
+      nativeBuildInputs = oldAttrs.nativeBuildInputs ++ [ autoPatchelfHook ];
+      buildInputs = oldAttrs.buildInputs ++ [
+        stdenv.cc.cc.lib
+        vulkan-loader
+      ];
+      # The pnpm tree includes static, musl and foreign-platform binaries; patch only host modules.
+      dontAutoPatchelf = true;
+      # Speech backends load sibling libraries relative to their own directory.
+      autoPatchelfFlags = [ "--preserve-origin" ];
+
+      postInstall = (oldAttrs.postInstall or "") + ''
+        # Shared Electron uses the unpackaged resource paths in DesktopSnapShot.
+        while IFS= read -r file; do
+          install -Dm444 "apps/desktop/gnome-extension/$file" \
+            "$out/libexec/t3code/apps/desktop/gnome-extension/$file"
+        done < <(jq -r '.files[]' apps/desktop/gnome-extension/bundle.json)
+
+        # The setup code rejects symlinks, including for bundled helpers.
+        install -Dm755 ${lib.getExe captureHelpers.kde} \
+          "$out/libexec/t3code/native/kde-snap-shot/target/release/t3-kde-snap-shot"
+        install -Dm755 ${lib.getExe captureHelpers.hyprland} \
+          "$out/libexec/t3code/native/hyprland-snap-shot/target/release/t3-hyprland-snap-shot"
+        cp -r ${captureHelpers.hyprland}/share/t3code/hyprland-capture/protocols \
+          "$out/libexec/t3code/native/hyprland-snap-shot/"
+      '';
+
+      postFixup = ''
+        autoPatchelf \
+          "$out"/libexec/t3code/node_modules/.pnpm/node-pty@*/node_modules/node-pty/prebuilds/linux-${stdenv.hostPlatform.node.arch} \
+          "$out"/libexec/t3code/node_modules/.pnpm/@koromix+koffi-linux-${stdenv.hostPlatform.node.arch}@*/node_modules/@koromix/koffi-linux-${stdenv.hostPlatform.node.arch}/linux_${stdenv.hostPlatform.node.arch} \
+          "$out"/libexec/t3code/node_modules/.pnpm/@transcribe-cpp+linux-${stdenv.hostPlatform.node.arch}-cpu-vulkan@*/node_modules/@transcribe-cpp/linux-${stdenv.hostPlatform.node.arch}-cpu-vulkan
+      '';
+
+      doInstallCheck = stdenv.buildPlatform.canExecute stdenv.hostPlatform;
+      installCheckPhase = ''
+        runHook preInstallCheck
+
+        # The standalone Node CLI can mask missing C++ runtime dependencies; exercise local
+        # dictation with the same runtime as the desktop worker.
+        ELECTRON_RUN_AS_NODE=1 ${lib.getExe electron_44} --input-type=module -e '
+          const speech = await import(process.argv[1]);
+          if (!speech.getAvailableBackends().some(backend => backend.kind === "cpu")) {
+            throw new Error("Native speech CPU backend is unavailable");
+          }
+        ' "$out/libexec/t3code/apps/server/node_modules/transcribe-cpp/dist/index.js"
+
+        runHook postInstallCheck
+      '';
+
+      desktopItems = [
+        (makeDesktopItem {
+          name = "t3code";
+          desktopName = "T3 Code (Beta)";
+          comment = "Minimal web GUI for coding agents";
+          exec = "t3code-desktop %U";
+          terminal = false;
+          icon = "t3code";
+          startupWMClass = "com.t3tools.T3Code";
+          categories = [ "Development" ];
+          mimeTypes = [ "x-scheme-handler/t3code" ];
+        })
+      ];
+
       pnpmDeps = fetchPnpmDeps {
         pnpm = pnpm_12;
         inherit (finalAttrs)
@@ -79,7 +154,7 @@ let
       };
 
       passthru = (oldAttrs.passthru or { }) // {
-        inherit browser;
+        inherit browser captureHelpers;
         tests = (oldAttrs.passthru.tests or { }) // {
           browser = callPackage ./browser-test.nix {
             inherit browser;
