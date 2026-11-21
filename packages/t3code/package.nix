@@ -3,6 +3,7 @@
   autoPatchelfHook,
   callPackage,
   chromium,
+  desktop-file-utils,
   electron_44,
   fetchFromGitHub,
   fetchPnpmDeps,
@@ -12,6 +13,7 @@
   stdenv,
   t3code,
   vulkan-loader,
+  xdg-utils,
 }:
 
 let
@@ -187,7 +189,14 @@ in
   (oldAttrs: {
     # Shared Electron must register the packaged launcher so sign-in callbacks reopen T3 Code.
     buildCommand = oldAttrs.buildCommand + ''
+      # The app registers itself for t3code:// sign-in links with these tools (NixOS/nixpkgs#555921).
       wrapProgram "$out/bin/t3code-desktop" \
-        --set T3CODE_DESKTOP_LAUNCHER_PATH "$out/bin/t3code-desktop"
+        --set T3CODE_DESKTOP_LAUNCHER_PATH "$out/bin/t3code-desktop" \
+        --prefix PATH : "${
+          lib.makeBinPath [
+            desktop-file-utils
+            xdg-utils
+          ]
+        }"
     '';
   })
