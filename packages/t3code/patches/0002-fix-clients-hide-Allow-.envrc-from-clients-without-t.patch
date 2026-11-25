@@ -1,7 +1,7 @@
-From 43db70dd0779959c70b2792b59d8c3b9f6838ba0 Mon Sep 17 00:00:00 2001
+From 155e3295457cfe27c9a236784fbabfabe450fa21 Mon Sep 17 00:00:00 2001
 From: Otavio Salvador <otavio@ossystems.com.br>
 Date: Sun, 11 Oct 2026 22:52:05 -0300
-Subject: [PATCH 02/13] fix(clients): hide Allow .envrc from clients without
+Subject: [PATCH 02/14] fix(clients): hide Allow .envrc from clients without
  the operate grant
 
 Allowing a project's .envrc is guarded by the orchestration operate grant,
@@ -16,10 +16,10 @@ without the grant; the warning itself still shows.
  3 files changed, 24 insertions(+)
 
 diff --git a/apps/mobile/src/features/threads/thread-work-log.tsx b/apps/mobile/src/features/threads/thread-work-log.tsx
-index 900b75dd2b..04794b5954 100644
+index d1389fe214..75a527c1d7 100644
 --- a/apps/mobile/src/features/threads/thread-work-log.tsx
 +++ b/apps/mobile/src/features/threads/thread-work-log.tsx
-@@ -881,6 +881,9 @@ function AllowDirenvButton(props: {
+@@ -890,6 +890,9 @@ function AllowDirenvButton(props: {
    const [state, setState] = useState<"idle" | "pending" | "allowed">(() =>
      allowedDirenvWarnings.has(props.warningId) ? "allowed" : "idle",
    );
@@ -30,7 +30,7 @@ index 900b75dd2b..04794b5954 100644
      <Pressable
        accessibilityRole="button"
 diff --git a/apps/web/src/components/chat/TimelineWorkEntryRow.tsx b/apps/web/src/components/chat/TimelineWorkEntryRow.tsx
-index 528732fd35..b2424d6425 100644
+index c6b5749d1e..93e9d79e33 100644
 --- a/apps/web/src/components/chat/TimelineWorkEntryRow.tsx
 +++ b/apps/web/src/components/chat/TimelineWorkEntryRow.tsx
 @@ -13,6 +13,7 @@ import {
@@ -41,7 +41,7 @@ index 528732fd35..b2424d6425 100644
  import { Link } from "@tanstack/react-router";
  import { notificationChildThreadId } from "@t3tools/client-runtime/state/thread-execution";
  import {
-@@ -245,6 +246,11 @@ function AllowDirenvButton({
+@@ -262,6 +263,11 @@ function AllowDirenvButton({
    const [state, setState] = useState<"idle" | "pending" | "allowed">(() =>
      allowedDirenvWarnings.has(warningId) ? "allowed" : "idle",
    );
@@ -54,10 +54,10 @@ index 528732fd35..b2424d6425 100644
      event.stopPropagation();
      setState("pending");
 diff --git a/packages/client-runtime/src/state/commandPermissions.test.ts b/packages/client-runtime/src/state/commandPermissions.test.ts
-index 0fc89a1fd2..8717c5dc37 100644
+index a3b1861ca0..b5a08da7ea 100644
 --- a/packages/client-runtime/src/state/commandPermissions.test.ts
 +++ b/packages/client-runtime/src/state/commandPermissions.test.ts
-@@ -175,6 +175,21 @@ describe("command permissions", () => {
+@@ -179,6 +179,21 @@ describe("command permissions", () => {
      }),
    );
  

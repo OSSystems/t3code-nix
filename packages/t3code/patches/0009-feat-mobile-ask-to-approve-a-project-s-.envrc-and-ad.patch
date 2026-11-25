@@ -1,7 +1,7 @@
-From b232142adc8669402b5db10e653fb755e63ead80 Mon Sep 17 00:00:00 2001
+From 34a39f20df13f798aff3692293e9a691ae23a873 Mon Sep 17 00:00:00 2001
 From: Otavio Salvador <otavio@ossystems.com.br>
 Date: Fri, 30 Oct 2026 08:00:08 -0300
-Subject: [PATCH 09/13] feat(mobile): ask to approve a project's .envrc and add
+Subject: [PATCH 09/14] feat(mobile): ask to approve a project's .envrc and add
  direnv settings
 
 The new task and thread screens show the same approval banner as the web, and the worktrees
@@ -67,7 +67,7 @@ index c48328d62d..d0166a266b 100644
                    key={targetsKey}
                    mode={uniform("branchNamingMode")}
 diff --git a/apps/mobile/src/features/threads/NewTaskDraftScreen.tsx b/apps/mobile/src/features/threads/NewTaskDraftScreen.tsx
-index 65135ade77..72facbbb20 100644
+index 88f377790b..abd243aced 100644
 --- a/apps/mobile/src/features/threads/NewTaskDraftScreen.tsx
 +++ b/apps/mobile/src/features/threads/NewTaskDraftScreen.tsx
 @@ -71,6 +71,7 @@ import { projectEnvironment } from "../../state/projects";
@@ -78,7 +78,7 @@ index 65135ade77..72facbbb20 100644
  import {
    describeUnavailableModelSelection,
    isModelSelectionUnavailable,
-@@ -951,6 +952,14 @@ export function NewTaskDraftScreen(props: {
+@@ -1009,6 +1010,14 @@ export function NewTaskDraftScreen(props: {
  
    const draftControls = (viewportHeight: number) => (
      <View className="pb-1">
@@ -255,10 +255,10 @@ index 0000000000..16a33fa0c6
 +  );
 +}
 diff --git a/apps/mobile/src/features/threads/ThreadDetailScreen.tsx b/apps/mobile/src/features/threads/ThreadDetailScreen.tsx
-index 7df9f595d8..097145dbc9 100644
+index 387b35befc..5e55494420 100644
 --- a/apps/mobile/src/features/threads/ThreadDetailScreen.tsx
 +++ b/apps/mobile/src/features/threads/ThreadDetailScreen.tsx
-@@ -184,6 +184,7 @@ import { PendingApprovalCard } from "./PendingApprovalCard";
+@@ -185,6 +185,7 @@ import { PendingApprovalCard } from "./PendingApprovalCard";
  import { ComposerErrorNotice } from "./ComposerErrorNotice";
  import { ManagedRuntimeModeNotice } from "./ManagedRuntimeModeNotice";
  import { FreshSessionNotice } from "./FreshSessionNotice";
@@ -266,7 +266,7 @@ index 7df9f595d8..097145dbc9 100644
  import { ComposerFeedback } from "./ComposerFeedback";
  import { ComposerUsageLimits } from "./ComposerUsageLimits";
  import { PendingUserInputCard } from "./PendingUserInputCard";
-@@ -1744,6 +1745,12 @@ function ThreadDetailBody(
+@@ -1765,6 +1766,12 @@ function ThreadDetailBody(
                      {freshSessionAvailable ? (
                        <FreshSessionNotice threadKey={selectedThreadKey} />
                      ) : null}
@@ -280,10 +280,10 @@ index 7df9f595d8..097145dbc9 100644
                        <ManagedRuntimeModeNotice
                          threadKey={selectedThreadKey}
 diff --git a/apps/mobile/src/i18n/translations/de.json b/apps/mobile/src/i18n/translations/de.json
-index 13336b92db..f1dec052be 100644
+index 0bcbd0b375..96f4a65582 100644
 --- a/apps/mobile/src/i18n/translations/de.json
 +++ b/apps/mobile/src/i18n/translations/de.json
-@@ -3647,6 +3647,11 @@
+@@ -3768,6 +3768,11 @@
    "88553740587a9beb": "Vom Remote starten",
    "ae0b91ed52736998": "Verwendet den neuesten Commit des verfolgten Remote-Branches des Basis-Branches, auch wenn der Name abweicht. Andernfalls den gleichnamigen Branch auf origin. Fehlt dieser Remote-Branch, wird dein lokaler Branch verwendet.",
    "1c97d5a78ca1fdb6": "Worktree-Submodule",
@@ -295,7 +295,7 @@ index 13336b92db..f1dec052be 100644
    "3da4debace63b2e5": "Server- und Anbieter-Updates",
    "e48e93f44d89ea86": "Updates",
    "5a3a2f227353f1d9": "Anbieter-Updates prüfen",
-@@ -4312,6 +4317,14 @@
+@@ -4511,6 +4516,14 @@
      },
      " wird geklont"
    ],
@@ -311,10 +311,10 @@ index 13336b92db..f1dec052be 100644
    "042c9c88de8cd95c": "Plan im Arbeitsbereich gespeichert",
    "979cece449deec58": "Plan konnte nicht gespeichert werden",
 diff --git a/apps/mobile/src/i18n/translations/en.json b/apps/mobile/src/i18n/translations/en.json
-index 8371dcb258..3d5b86bbc9 100644
+index e813caa3c2..56753aea4c 100644
 --- a/apps/mobile/src/i18n/translations/en.json
 +++ b/apps/mobile/src/i18n/translations/en.json
-@@ -3648,6 +3648,11 @@
+@@ -3770,6 +3770,11 @@
    "88553740587a9beb": "Start from remote",
    "ae0b91ed52736998": "Uses the latest commit of the base branch’s tracked remote branch, even if its name differs. Otherwise uses the same-named branch on origin. Uses your local branch if that remote branch is missing.",
    "1c97d5a78ca1fdb6": "Worktree submodules",
@@ -326,7 +326,7 @@ index 8371dcb258..3d5b86bbc9 100644
    "3da4debace63b2e5": "Server and provider updates",
    "e48e93f44d89ea86": "Updates",
    "5a3a2f227353f1d9": "Check provider updates",
-@@ -4313,6 +4318,14 @@
+@@ -4513,6 +4518,14 @@
        "v": "v"
      }
    ],
@@ -342,10 +342,10 @@ index 8371dcb258..3d5b86bbc9 100644
    "042c9c88de8cd95c": "Plan saved to workspace",
    "979cece449deec58": "Could not save plan",
 diff --git a/apps/mobile/src/i18n/translations/es.json b/apps/mobile/src/i18n/translations/es.json
-index d692db0a39..4604fdb6c3 100644
+index 91b25bae7e..6c93819e91 100644
 --- a/apps/mobile/src/i18n/translations/es.json
 +++ b/apps/mobile/src/i18n/translations/es.json
-@@ -3642,6 +3642,11 @@
+@@ -3763,6 +3763,11 @@
    "88553740587a9beb": "Iniciar desde el remoto",
    "ae0b91ed52736998": "Usa el último commit de la rama remota a la que sigue la rama base, aunque su nombre sea distinto. Si no, usa la rama con el mismo nombre en origin. Usa tu rama local si falta esa rama remota.",
    "1c97d5a78ca1fdb6": "Submódulos de worktrees",
@@ -357,7 +357,7 @@ index d692db0a39..4604fdb6c3 100644
    "3da4debace63b2e5": "Actualizaciones del servidor y los proveedores",
    "e48e93f44d89ea86": "Actualizaciones",
    "5a3a2f227353f1d9": "Buscar actualizaciones de proveedores",
-@@ -4305,6 +4310,14 @@
+@@ -4504,6 +4509,14 @@
        "v": "v"
      }
    ],
@@ -373,10 +373,10 @@ index d692db0a39..4604fdb6c3 100644
    "042c9c88de8cd95c": "Plan guardado en el espacio de trabajo",
    "979cece449deec58": "No se pudo guardar el plan",
 diff --git a/apps/mobile/src/i18n/translations/fr.json b/apps/mobile/src/i18n/translations/fr.json
-index f489a776c4..d57a3b10ba 100644
+index d608c4e02f..36c2b42be9 100644
 --- a/apps/mobile/src/i18n/translations/fr.json
 +++ b/apps/mobile/src/i18n/translations/fr.json
-@@ -3642,6 +3642,11 @@
+@@ -3763,6 +3763,11 @@
    "88553740587a9beb": "Partir du remote",
    "ae0b91ed52736998": "Utilise le dernier commit de la branche distante suivie par la branche de base, même si son nom diffère. Sinon, utilise la branche du même nom sur origin. Utilise votre branche locale si cette branche distante n’existe pas.",
    "1c97d5a78ca1fdb6": "Sous-modules des worktrees",
@@ -388,7 +388,7 @@ index f489a776c4..d57a3b10ba 100644
    "3da4debace63b2e5": "Mises à jour du serveur et des fournisseurs",
    "e48e93f44d89ea86": "Mises à jour",
    "5a3a2f227353f1d9": "Vérifier les mises à jour des fournisseurs",
-@@ -4306,6 +4311,14 @@
+@@ -4505,6 +4510,14 @@
        "v": "v"
      }
    ],
@@ -404,10 +404,10 @@ index f489a776c4..d57a3b10ba 100644
    "042c9c88de8cd95c": "Plan enregistré dans l’espace de travail",
    "979cece449deec58": "Impossible d’enregistrer le plan",
 diff --git a/apps/mobile/src/i18n/translations/ja.json b/apps/mobile/src/i18n/translations/ja.json
-index 7a93f15044..67daca9f7d 100644
+index e2700b7795..c53a7a760e 100644
 --- a/apps/mobile/src/i18n/translations/ja.json
 +++ b/apps/mobile/src/i18n/translations/ja.json
-@@ -3639,6 +3639,11 @@
+@@ -3759,6 +3759,11 @@
    "88553740587a9beb": "リモートから開始",
    "ae0b91ed52736998": "ベースブランチが追跡しているリモートブランチの最新コミットを使用します (名前が異なる場合も含む)。それ以外の場合は origin 上の同名ブランチを使用します。そのリモートブランチがない場合はローカルブランチを使用します。",
    "1c97d5a78ca1fdb6": "ワークツリーのサブモジュール",
@@ -419,7 +419,7 @@ index 7a93f15044..67daca9f7d 100644
    "3da4debace63b2e5": "サーバーとプロバイダーの更新",
    "e48e93f44d89ea86": "更新",
    "5a3a2f227353f1d9": "プロバイダーの更新を確認",
-@@ -4287,6 +4292,14 @@
+@@ -4484,6 +4489,14 @@
      },
      " をクローン中"
    ],
@@ -435,10 +435,10 @@ index 7a93f15044..67daca9f7d 100644
    "042c9c88de8cd95c": "プランをワークスペースに保存しました",
    "979cece449deec58": "プランを保存できませんでした",
 diff --git a/apps/mobile/src/i18n/translations/ko.json b/apps/mobile/src/i18n/translations/ko.json
-index 08653aa33e..aef21f93a3 100644
+index 6a80ee523a..70cda0ad88 100644
 --- a/apps/mobile/src/i18n/translations/ko.json
 +++ b/apps/mobile/src/i18n/translations/ko.json
-@@ -3643,6 +3643,11 @@
+@@ -3763,6 +3763,11 @@
    "88553740587a9beb": "원격에서 시작",
    "ae0b91ed52736998": "기준 브랜치가 추적하는 원격 브랜치의 최신 커밋을 사용하며, 이름이 달라도 마찬가지입니다. 그렇지 않으면 origin의 같은 이름 브랜치를 사용합니다. 해당 원격 브랜치가 없으면 로컬 브랜치를 사용합니다.",
    "1c97d5a78ca1fdb6": "워크트리 하위 모듈",
@@ -450,7 +450,7 @@ index 08653aa33e..aef21f93a3 100644
    "3da4debace63b2e5": "서버 및 제공자 업데이트",
    "e48e93f44d89ea86": "업데이트",
    "5a3a2f227353f1d9": "제공자 업데이트 확인",
-@@ -4292,6 +4297,14 @@
+@@ -4489,6 +4494,14 @@
      },
      " 복제 중"
    ],
@@ -466,10 +466,10 @@ index 08653aa33e..aef21f93a3 100644
    "042c9c88de8cd95c": "계획을 작업 영역에 저장함",
    "979cece449deec58": "계획을 저장할 수 없습니다",
 diff --git a/apps/mobile/src/i18n/translations/pt-BR.json b/apps/mobile/src/i18n/translations/pt-BR.json
-index 4ee75325be..9c5f99e07f 100644
+index 8a3a2d74a0..0840233815 100644
 --- a/apps/mobile/src/i18n/translations/pt-BR.json
 +++ b/apps/mobile/src/i18n/translations/pt-BR.json
-@@ -3642,6 +3642,11 @@
+@@ -3763,6 +3763,11 @@
    "88553740587a9beb": "Iniciar a partir do remoto",
    "ae0b91ed52736998": "Usa o commit mais recente do branch remoto rastreado pelo branch base, mesmo que o nome seja diferente. Caso contrário, usa o branch de mesmo nome no origin. Usa seu branch local se esse branch remoto não existir.",
    "1c97d5a78ca1fdb6": "Submódulos do worktree",
@@ -481,7 +481,7 @@ index 4ee75325be..9c5f99e07f 100644
    "3da4debace63b2e5": "Atualizações do servidor e dos provedores",
    "e48e93f44d89ea86": "Atualizações",
    "5a3a2f227353f1d9": "Verificar atualizações dos provedores",
-@@ -4306,6 +4311,14 @@
+@@ -4505,6 +4510,14 @@
        "v": "v"
      }
    ],
@@ -497,10 +497,10 @@ index 4ee75325be..9c5f99e07f 100644
    "042c9c88de8cd95c": "Plano salvo no workspace",
    "979cece449deec58": "Não foi possível salvar o plano",
 diff --git a/apps/mobile/src/i18n/translations/ru.json b/apps/mobile/src/i18n/translations/ru.json
-index 70a2918758..767e1bc3dc 100644
+index 7f87012a09..9b1ffbf879 100644
 --- a/apps/mobile/src/i18n/translations/ru.json
 +++ b/apps/mobile/src/i18n/translations/ru.json
-@@ -3696,6 +3696,11 @@
+@@ -3817,6 +3817,11 @@
    "88553740587a9beb": "Начинать с удалённой ветки",
    "ae0b91ed52736998": "Использует последний коммит удалённой ветки, которую отслеживает базовая ветка, даже если её имя отличается. Иначе использует одноимённую ветку на origin. Если удалённой ветки нет, используется локальная.",
    "1c97d5a78ca1fdb6": "Подмодули рабочих деревьев",
@@ -512,7 +512,7 @@ index 70a2918758..767e1bc3dc 100644
    "3da4debace63b2e5": "Обновления сервера и провайдеров",
    "e48e93f44d89ea86": "Обновления",
    "5a3a2f227353f1d9": "Проверять обновления провайдеров",
-@@ -4384,6 +4389,14 @@
+@@ -4583,6 +4588,14 @@
        "v": "v"
      }
    ],
@@ -528,10 +528,10 @@ index 70a2918758..767e1bc3dc 100644
    "042c9c88de8cd95c": "План сохранён в рабочую область",
    "979cece449deec58": "Не удалось сохранить план",
 diff --git a/apps/mobile/src/i18n/translations/sv.json b/apps/mobile/src/i18n/translations/sv.json
-index 449a5b2616..06eae64dbf 100644
+index ea4ad151c6..1d3d7102c9 100644
 --- a/apps/mobile/src/i18n/translations/sv.json
 +++ b/apps/mobile/src/i18n/translations/sv.json
-@@ -3648,6 +3648,11 @@
+@@ -3769,6 +3769,11 @@
    "88553740587a9beb": "Starta från fjärrgrenen",
    "ae0b91ed52736998": "Använder den senaste commiten i basgrenens spårade fjärrgren, även om namnet skiljer sig. Annars används grenen med samma namn på origin. Använder din lokala gren om fjärrgrenen saknas.",
    "1c97d5a78ca1fdb6": "Worktree-submoduler",
@@ -543,7 +543,7 @@ index 449a5b2616..06eae64dbf 100644
    "3da4debace63b2e5": "Server- och leverantörsuppdateringar",
    "e48e93f44d89ea86": "Uppdateringar",
    "5a3a2f227353f1d9": "Sök efter leverantörsuppdateringar",
-@@ -4312,6 +4317,14 @@
+@@ -4511,6 +4516,14 @@
        "v": "v"
      }
    ],
@@ -559,10 +559,10 @@ index 449a5b2616..06eae64dbf 100644
    "042c9c88de8cd95c": "Planen sparades i arbetsytan",
    "979cece449deec58": "Kunde inte spara planen",
 diff --git a/apps/mobile/src/i18n/translations/zh.json b/apps/mobile/src/i18n/translations/zh.json
-index 28e0bf58db..d8525e2e4d 100644
+index 8bd7f74cb6..87dfac06cc 100644
 --- a/apps/mobile/src/i18n/translations/zh.json
 +++ b/apps/mobile/src/i18n/translations/zh.json
-@@ -3644,6 +3644,11 @@
+@@ -3765,6 +3765,11 @@
    "88553740587a9beb": "从远程分支开始",
    "ae0b91ed52736998": "使用基准分支所跟踪的远程分支的最新提交，即使名称不同。未跟踪远程分支时，使用 origin 上的同名分支。远程分支不存在时，使用本地分支。",
    "1c97d5a78ca1fdb6": "工作树子模块",
@@ -574,7 +574,7 @@ index 28e0bf58db..d8525e2e4d 100644
    "3da4debace63b2e5": "服务器和提供方更新",
    "e48e93f44d89ea86": "更新",
    "5a3a2f227353f1d9": "检查提供方更新",
-@@ -4295,6 +4300,14 @@
+@@ -4493,6 +4498,14 @@
        "v": "v"
      }
    ],

@@ -1,7 +1,7 @@
-From 6260b260e453d9712e27c88b5c941b439e302674 Mon Sep 17 00:00:00 2001
+From 925fba588b6a0e87313e104edc86b2dd7330a485 Mon Sep 17 00:00:00 2001
 From: Otavio Salvador <otavio@ossystems.com.br>
 Date: Fri, 30 Oct 2026 08:00:08 -0300
-Subject: [PATCH 07/13] feat(server): worktree setup scripts start with the
+Subject: [PATCH 07/14] feat(server): worktree setup scripts start with the
  direnv environment
 
 A new Load direnv environment setup stage evaluates the worktree's approved .envrc before the
@@ -28,10 +28,10 @@ index da0a98c194..82403e61ac 100644
    agent: msg("Start agent"),
  } as const satisfies Record<WorktreeSetupStage["id"], string>;
 diff --git a/apps/server/src/orchestration-v2/ThreadLaunchService.test.ts b/apps/server/src/orchestration-v2/ThreadLaunchService.test.ts
-index faec88220a..c4e6b8a417 100644
+index 98434fa496..cf14be43bf 100644
 --- a/apps/server/src/orchestration-v2/ThreadLaunchService.test.ts
 +++ b/apps/server/src/orchestration-v2/ThreadLaunchService.test.ts
-@@ -53,6 +53,8 @@ import * as SqlitePersistence from "../persistence/Sqlite.ts";
+@@ -54,6 +54,8 @@ import * as SqlitePersistence from "../persistence/Sqlite.ts";
  import * as ProjectStore from "./ProjectStore.ts";
  import * as ProjectService from "../project/ProjectService.ts";
  import * as ProjectSetupScriptRunner from "../project/ProjectSetupScriptRunner.ts";
@@ -40,7 +40,7 @@ index faec88220a..c4e6b8a417 100644
  import * as ManagedProjectFolders from "../project/ManagedProjectFolders.ts";
  import * as ProviderRegistryMock from "../provider/testUtils/providerRegistryMock.ts";
  import * as ServerSettings from "../serverSettings.ts";
-@@ -149,6 +151,9 @@ interface HarnessOptions {
+@@ -159,6 +161,9 @@ interface HarnessOptions {
      dispatch: ThreadManagement.ThreadManagementService["Service"]["dispatch"],
    ) => ReturnType<ThreadManagement.ThreadManagementService["Service"]["dispatch"]>;
    readonly isGitRepository?: CheckpointStore.CheckpointStore["Service"]["isGitRepository"];
@@ -50,7 +50,7 @@ index faec88220a..c4e6b8a417 100644
  }
  
  function makeHarness(options: HarnessOptions = {}) {
-@@ -256,6 +261,7 @@ function makeHarness(options: HarnessOptions = {}) {
+@@ -268,6 +273,7 @@ function makeHarness(options: HarnessOptions = {}) {
          isScratchProject: () => Effect.succeed(false),
          folderForThread: () => Effect.succeedNone,
        }),
@@ -58,7 +58,7 @@ index faec88220a..c4e6b8a417 100644
    );
    const interceptDispatch = options.dispatch;
    const layerLaunchThreads =
-@@ -2830,6 +2836,65 @@ it.effect("shared intake preserves durable attachment bytes after a lost launch
+@@ -2958,6 +2964,65 @@ it.effect("shared intake preserves durable attachment bytes after a lost launch
    }).pipe(Effect.provide(Layer.mergeAll(harness.layer, layerFiles)));
  });
  
@@ -125,12 +125,12 @@ index faec88220a..c4e6b8a417 100644
    Effect.gen(function* () {
      const entered = yield* Deferred.make<void>();
 diff --git a/apps/server/src/orchestration-v2/ThreadLaunchService.ts b/apps/server/src/orchestration-v2/ThreadLaunchService.ts
-index 593393cae4..dc7e680466 100644
+index 99e81c27c3..2c50b0184f 100644
 --- a/apps/server/src/orchestration-v2/ThreadLaunchService.ts
 +++ b/apps/server/src/orchestration-v2/ThreadLaunchService.ts
-@@ -47,9 +47,11 @@ import {
- import * as CheckpointStore from "../checkpointing/CheckpointStore.ts";
+@@ -52,9 +52,11 @@ import * as CheckpointStore from "../checkpointing/CheckpointStore.ts";
  import * as GitWorkflow from "../git/GitWorkflowService.ts";
+ import type * as GitVcsDriver from "../vcs/GitVcsDriver.ts";
  import { parseGitCloneProgressLine } from "../project/gitCloneProgress.ts";
 +import * as ProjectEnvironmentService from "../project/ProjectEnvironmentService.ts";
  import * as ProjectService from "../project/ProjectService.ts";
@@ -140,7 +140,7 @@ index 593393cae4..dc7e680466 100644
  import * as ProviderRegistry from "../provider/ProviderRegistry.ts";
  import * as ServerSettings from "../serverSettings.ts";
  import * as TextGeneration from "../textGeneration/TextGeneration.ts";
-@@ -285,10 +287,50 @@ const make = Effect.gen(function* () {
+@@ -302,10 +304,50 @@ const make = Effect.gen(function* () {
      strategy.type === "root" && strategy.branch === undefined
        ? git.currentBranch(workspaceRoot).pipe(Effect.orElseSucceed(() => null))
        : Effect.succeed(strategy.branch ?? null);
@@ -191,10 +191,10 @@ index 593393cae4..dc7e680466 100644
    const mapError =
      (input: PreparationInput, operation: ThreadLaunchError["operation"], threadId?: ThreadId) =>
      (cause: unknown) =>
-@@ -549,12 +591,18 @@ const make = Effect.gen(function* () {
-     let runReleased = false;
+@@ -611,12 +653,18 @@ const make = Effect.gen(function* () {
      // Stop background renames before forgetting worktrees; completed renames record them again.
      let branchRename: Fiber.Fiber<unknown> | null = null;
+     let stopBranchName: Effect.Effect<void> = Effect.void;
 +    // The stage leaves the list after checkout when the worktree has no `.envrc`.
 +    const loadsEnvironment =
 +      tracked && Option.isSome(projectEnvironment) && Option.isSome(direnv)
@@ -211,7 +211,7 @@ index 593393cae4..dc7e680466 100644
          fiber: yield* Effect.fiber,
        });
      } else if (reused !== undefined) {
-@@ -562,7 +610,7 @@ const make = Effect.gen(function* () {
+@@ -624,7 +672,7 @@ const make = Effect.gen(function* () {
          threadId,
          branch: input.workspaceStrategy.branch ?? null,
          baseRef: reused.baseRef,
@@ -220,7 +220,7 @@ index 593393cae4..dc7e680466 100644
          fiber: yield* Effect.fiber,
        });
      }
-@@ -944,6 +992,10 @@ const make = Effect.gen(function* () {
+@@ -1069,6 +1117,10 @@ const make = Effect.gen(function* () {
            })
            .pipe(Effect.mapError(mapError(input, "update-thread", threadId)));
        }
@@ -229,9 +229,9 @@ index 593393cae4..dc7e680466 100644
 +          ? yield* loadSetupEnvironment(threadId, input.projectId, worktreePath)
 +          : undefined;
        yield* setupTracker.stageStatus(threadId, "setup-script", "running");
+       // The saved setup script is the project's code too.
        const setup =
-         worktreePath === null
-@@ -954,6 +1006,7 @@ const make = Effect.gen(function* () {
+@@ -1080,6 +1132,7 @@ const make = Effect.gen(function* () {
                  projectId: input.projectId,
                  projectCwd: project.workspaceRoot,
                  worktreePath,
@@ -240,10 +240,10 @@ index 593393cae4..dc7e680466 100644
                    ? {
                        observeCompletion: {
 diff --git a/apps/server/src/project/ProjectSetupScriptRunner.ts b/apps/server/src/project/ProjectSetupScriptRunner.ts
-index 0f2e58d121..759a14db02 100644
+index 861750b7cb..86c8c41dfe 100644
 --- a/apps/server/src/project/ProjectSetupScriptRunner.ts
 +++ b/apps/server/src/project/ProjectSetupScriptRunner.ts
-@@ -74,6 +74,8 @@ export interface ProjectSetupScriptRunnerInput {
+@@ -76,6 +76,8 @@ export interface ProjectSetupScriptRunnerInput {
    readonly observeCompletion?: {
      readonly onOutputLine?: (line: string) => Effect.Effect<void>;
    };
@@ -252,9 +252,9 @@ index 0f2e58d121..759a14db02 100644
  }
  
  export class ProjectSetupScriptOperationError extends Schema.TaggedError<ProjectSetupScriptOperationError>()(
-@@ -496,7 +498,14 @@ export const make = Effect.gen(function* () {
-         ? `settle-${script.id}-${(yield* random.uuidV4()).slice(0, 8)}`
-         : `setup-${script.id}`;
+@@ -521,7 +523,14 @@ export const make = Effect.gen(function* () {
+       );
+     }
      const cwd = input.worktreePath;
 +    const direnvSet: Record<string, string> = {};
 +    const unsetEnv: string[] = [];
@@ -267,7 +267,7 @@ index 0f2e58d121..759a14db02 100644
        ...projectScriptRuntimeEnv({
          project: { cwd: project.workspaceRoot },
          worktreePath: input.worktreePath,
-@@ -535,6 +544,7 @@ export const make = Effect.gen(function* () {
+@@ -560,6 +569,7 @@ export const make = Effect.gen(function* () {
            cwd,
            worktreePath: input.worktreePath,
            env: { ...env, NO_COLOR: "1", FORCE_COLOR: "0" },
@@ -276,10 +276,10 @@ index 0f2e58d121..759a14db02 100644
          .pipe(
            Effect.andThen(() =>
 diff --git a/packages/contracts/src/worktreeSetup.ts b/packages/contracts/src/worktreeSetup.ts
-index e9b64e4c90..07a8112beb 100644
+index d6ecdea025..8e2a067e93 100644
 --- a/packages/contracts/src/worktreeSetup.ts
 +++ b/packages/contracts/src/worktreeSetup.ts
-@@ -11,6 +11,7 @@ export const WorktreeSetupStageId = Schema.Literals([
+@@ -17,6 +17,7 @@ export const WorktreeSetupStageId = Schema.Literals([
    "fetch",
    "checkout",
    "submodules",
@@ -287,7 +287,7 @@ index e9b64e4c90..07a8112beb 100644
    "setup-script",
    "agent",
  ]);
-@@ -83,6 +84,7 @@ export const WORKTREE_SETUP_STAGE_ORDER: ReadonlyArray<WorktreeSetupStageId> = [
+@@ -89,6 +90,7 @@ export const WORKTREE_SETUP_STAGE_ORDER: ReadonlyArray<WorktreeSetupStageId> = [
    "fetch",
    "checkout",
    "submodules",
@@ -295,7 +295,7 @@ index e9b64e4c90..07a8112beb 100644
    "setup-script",
    "agent",
  ];
-@@ -95,6 +97,8 @@ export function worktreeSetupStageLabel(id: WorktreeSetupStageId): string {
+@@ -101,6 +103,8 @@ export function worktreeSetupStageLabel(id: WorktreeSetupStageId): string {
        return "Check out files";
      case "submodules":
        return "Init submodules";
