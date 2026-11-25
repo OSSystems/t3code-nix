@@ -43,6 +43,7 @@ let
     ./patches/0011-feat-muse-Muse-agents-start-with-the-project-s-diren.patch
     ./patches/0012-feat-server-Git-hooks-start-with-the-project-s-diren.patch
     ./patches/0013-feat-choose-the-flake-dev-shell-a-project-s-direnv-e.patch
+    ./patches/0014-feat-server-the-host-can-manage-the-agents-memory.patch
   ];
 
   captureHelpers = lib.genAttrs [ "kde" "hyprland" ] (
