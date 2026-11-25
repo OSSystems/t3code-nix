@@ -8,6 +8,7 @@
   fetchFromGitHub,
   fetchPnpmDeps,
   makeDesktopItem,
+  nodejs_26,
   pnpm_12,
   rustPlatform,
   stdenv,
@@ -96,7 +97,18 @@ let
       # Speech backends load sibling libraries relative to their own directory.
       autoPatchelfFlags = [ "--preserve-origin" ];
 
+      # `server` is the server alone, for hosts without a desktop: its production dependencies,
+      # without the workspace's other packages, the desktop app or Electron.
+      outputs = (oldAttrs.outputs or [ "out" ]) ++ [ "server" ];
+
       postInstall = (oldAttrs.postInstall or "") + ''
+        pnpm --filter t3 deploy --prod --offline "$server/libexec/t3code/apps/server"
+        find "$server/libexec/t3code" -xtype l -delete
+        makeWrapper ${lib.getExe nodejs_26} "$server/bin/t3" \
+          --add-flags "$server/libexec/t3code/apps/server/dist/bin.mjs"
+        # The linker adds $out/lib to the wrapper's rpath, which would keep the desktop app.
+        patchelf --shrink-rpath "$server/bin/t3"
+
         # Shared Electron uses the unpackaged resource paths in DesktopSnapShot.
         while IFS= read -r file; do
           install -Dm444 "apps/desktop/gnome-extension/$file" \
@@ -117,6 +129,9 @@ let
           "$out"/libexec/t3code/node_modules/.pnpm/node-pty@*/node_modules/node-pty/prebuilds/linux-${stdenv.hostPlatform.node.arch} \
           "$out"/libexec/t3code/node_modules/.pnpm/@koromix+koffi-linux-${stdenv.hostPlatform.node.arch}@*/node_modules/@koromix/koffi-linux-${stdenv.hostPlatform.node.arch}/linux_${stdenv.hostPlatform.node.arch} \
           "$out"/libexec/t3code/node_modules/.pnpm/@transcribe-cpp+linux-${stdenv.hostPlatform.node.arch}-cpu-vulkan@*/node_modules/@transcribe-cpp/linux-${stdenv.hostPlatform.node.arch}-cpu-vulkan
+        autoPatchelf \
+          "$server"/libexec/t3code/apps/server/node_modules/.pnpm/node-pty@*/node_modules/node-pty/prebuilds/linux-${stdenv.hostPlatform.node.arch} \
+          "$server"/libexec/t3code/apps/server/node_modules/.pnpm/@transcribe-cpp+linux-${stdenv.hostPlatform.node.arch}-cpu-vulkan@*/node_modules/@transcribe-cpp/linux-${stdenv.hostPlatform.node.arch}-cpu-vulkan
       '';
 
       doInstallCheck = stdenv.buildPlatform.canExecute stdenv.hostPlatform;
@@ -131,6 +146,14 @@ let
             throw new Error("Native speech CPU backend is unavailable");
           }
         ' "$out/libexec/t3code/apps/server/node_modules/transcribe-cpp/dist/index.js"
+
+        HOME=$TMPDIR "$server/bin/t3" --version
+        ${lib.getExe nodejs_26} --input-type=module -e '
+          const speech = await import(process.argv[1]);
+          if (!speech.getAvailableBackends().some(backend => backend.kind === "cpu")) {
+            throw new Error("Native speech CPU backend is unavailable to the server");
+          }
+        ' "$server/libexec/t3code/apps/server/node_modules/transcribe-cpp/dist/index.js"
 
         runHook postInstallCheck
       '';
@@ -182,12 +205,28 @@ let
       hash = "sha256-5cmG2daM1bVOA23gjjoalbx0fEL1hmqV6WZov0sUZp8=";
     };
   };
+
+  server =
+    (t3code.override {
+      t3code-unwrapped = unwrapped.server;
+      t3code-resource-monitor = resourceMonitor;
+    }).overrideAttrs
+      (oldAttrs: {
+        pname = "t3code-server";
+        name = "t3code-server-${version}";
+        meta = oldAttrs.meta // {
+          mainProgram = "t3";
+        };
+      });
 in
 (t3code.override {
   t3code-unwrapped = unwrapped;
   t3code-resource-monitor = resourceMonitor;
 }).overrideAttrs
   (oldAttrs: {
+    passthru = oldAttrs.passthru // {
+      inherit server;
+    };
     # Shared Electron must register the packaged launcher so sign-in callbacks reopen T3 Code.
     buildCommand = oldAttrs.buildCommand + ''
       # The app registers itself for t3code:// sign-in links with these tools (NixOS/nixpkgs#555921).

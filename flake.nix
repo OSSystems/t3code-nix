@@ -32,13 +32,20 @@
         );
     in
     {
-      overlays.default = callPackages;
+      overlays.default =
+        final: prev:
+        callPackages final prev
+        // {
+          t3code-server = final.t3code.server;
+        };
 
       packages = forAllSystems (
         pkgs:
         callPackages pkgs pkgs
         // {
           default = self.packages.${pkgs.stdenv.hostPlatform.system}.t3code;
+          # The server alone, without the desktop app, for hosts that only serve it.
+          t3code-server = self.packages.${pkgs.stdenv.hostPlatform.system}.t3code.server;
         }
       );
 
