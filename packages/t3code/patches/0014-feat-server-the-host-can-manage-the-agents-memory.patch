@@ -1,0 +1,162 @@
+From a42e544cf899f658a12b3ceeac4f905ea65676a2 Mon Sep 17 00:00:00 2001
+From: Samuel Silva <samuel@ossystems.com.br>
+Date: Wed, 25 Nov 2026 13:20:34 -0300
+Subject: [PATCH 14/14] feat(server): the host can manage the agents' memory
+
+T3 Code caps the agents slice at a share of the RAM the machine has when an
+agent starts. A VM whose host plugs memory as it runs short starts small: in
+one that boots with 2 GiB and may grow to 16, agents were capped at 1.5 GiB,
+or throttled at 1 GiB with swap, and the cap only caught up at the next agent
+launch. An administrator's own drop-in for the slice loses to the runtime
+override too.
+
+T3CODE_AGENT_SLICE_MEMORY_POLICY=host-managed leaves the slice's memory alone.
+Unset or automatic keeps the caps; anything else warns and keeps them. Scopes,
+OOM reporting and the parent slice's CPU, IO and task limits are unchanged.
+The same option is proposed upstream in pingdotgg/t3code#24717.
+---
+ apps/server/src/process/agentScope.test.ts | 26 +++++++++++++++++++++-
+ apps/server/src/process/agentScope.ts      | 23 ++++++++++++++++++-
+ docs/user/background-service.md            | 17 ++++++++++++++
+ 3 files changed, 64 insertions(+), 2 deletions(-)
+
+diff --git a/apps/server/src/process/agentScope.test.ts b/apps/server/src/process/agentScope.test.ts
+index 033d83bc5f..b0075c21f5 100644
+--- a/apps/server/src/process/agentScope.test.ts
++++ b/apps/server/src/process/agentScope.test.ts
+@@ -67,11 +67,13 @@ const withFakeSystemd = <A, E>(
+     stopFails = false,
+     leftovers = false,
+     liveOwner = false,
++    environment = {},
+   }: {
+     readonly oomPolicy?: boolean;
+     readonly stopFails?: boolean;
+     readonly leftovers?: boolean;
+     readonly liveOwner?: boolean;
++    readonly environment?: Record<string, string>;
+   } = {},
+ ) =>
+   Effect.gen(function* () {
+@@ -129,7 +131,11 @@ const withFakeSystemd = <A, E>(
+       Effect.provideService(ProviderProcesses.ProviderProcesses, { hasOtherLiveOwner: liveOwner }),
+       Effect.provideService(ProcessRunner.ProcessRunner, runner),
+       Effect.provideService(HostProcess.Platform, "linux"),
+-      Effect.provideService(HostProcess.Environment, { PATH: bin, XDG_RUNTIME_DIR: "/run/user/1" }),
++      Effect.provideService(HostProcess.Environment, {
++        ...environment,
++        PATH: bin,
++        XDG_RUNTIME_DIR: "/run/user/1",
++      }),
+       Effect.provideService(FileSystem.FileSystem, {
+         ...fileSystem,
+         readFileString: (path, encoding) =>
+@@ -333,6 +339,24 @@ describe("AgentScope service", () => {
+     ),
+   );
+ 
++  it.effect("leaves agent memory to the host when it manages it", () => {
++    memory.total = 2 * GiB;
++    return withFakeSystemd(
++      ({ scope, calls }) =>
++        Effect.gen(function* () {
++          const launch = scope.wrap({ command: "agent", args: [], name: "t", threadId: "a" });
++          yield* launch;
++          // A VM's host plugs more memory as its agents need it.
++          memory.total = 16 * GiB;
++          const agent = yield* launch;
++          const sliced = calls.filter(([, verb]) => verb === "set-property").map((args) => args[3]);
++          expect(sliced).toEqual(["app-t3code.slice"]);
++          expect(agent.args).toContain("--property=OOMPolicy=stop");
++        }),
++      { environment: { T3CODE_AGENT_SLICE_MEMORY_POLICY: "host-managed" } },
++    );
++  });
++
+   it.effect("follows a live memory or swap change at the next launch", () => {
+     memory.total = 16 * GiB;
+     memory.swapKb = 2 * 1024 ** 2;
+diff --git a/apps/server/src/process/agentScope.ts b/apps/server/src/process/agentScope.ts
+index 4bbb7d159c..b10be68fc6 100644
+--- a/apps/server/src/process/agentScope.ts
++++ b/apps/server/src/process/agentScope.ts
+@@ -35,6 +35,13 @@ export function ownedAgentSlice(stateDir: string): string {
+ 
+ const GiB = 1024 ** 3;
+ 
++/**
++ * `host-managed` leaves the agents slice's memory to whoever runs the machine: a VM sized by its
++ * host, which grows on demand from a small boot size, or an administrator's own drop-in, which a
++ * runtime override would outrank. Limits from the RAM of the moment would cap agents far below it.
++ */
++const AGENT_MEMORY_POLICY_ENV = "T3CODE_AGENT_SLICE_MEMORY_POLICY";
++
+ /**
+  * Agents leave about 6 GB free before throttling and 4 GB before an OOM kill (at
+  * least half and three quarters of RAM go to agents) so the server and sshd keep
+@@ -208,11 +215,24 @@ export const make = Effect.gen(function* () {
+         Effect.map((text) => /^SwapTotal:\s*0 kB$/m.exec(text) === null),
+         Effect.orElseSucceed(() => true),
+       );
++      const memoryPolicy = hostEnvironment[AGENT_MEMORY_POLICY_ENV];
++      if (
++        memoryPolicy !== undefined &&
++        memoryPolicy !== "automatic" &&
++        memoryPolicy !== "host-managed"
++      ) {
++        yield* Effect.logWarning("Unknown agent slice memory policy; using automatic limits", {
++          env: AGENT_MEMORY_POLICY_ENV,
++          memoryPolicy,
++        });
++      }
++      const hostManagedMemory = memoryPolicy === "host-managed";
+       let appliedTotal: number | undefined;
+       let appliedHasSwap: boolean | undefined;
+       const memoryLimitsLock = yield* Semaphore.make(1);
+       const applyMemoryLimits = memoryLimitsLock.withPermits(1)(
+         Effect.gen(function* () {
++          if (hostManagedMemory) return;
+           const total = NodeOS.totalmem();
+           const hasSwap = yield* readHasSwap;
+           if (total === appliedTotal && hasSwap === appliedHasSwap) return;
+@@ -238,7 +258,8 @@ export const make = Effect.gen(function* () {
+       yield* setProperties(AGENTS_PARENT_SLICE, AGENTS_PARENT_PROPERTIES);
+       yield* Effect.logInfo("Agent scopes are on", {
+         slice: AGENT_SLICE,
+-        ...agentSliceMemoryLimits(NodeOS.totalmem(), yield* readHasSwap),
++        memoryPolicy: hostManagedMemory ? "host-managed" : "automatic",
++        ...(hostManagedMemory ? {} : agentSliceMemoryLimits(NodeOS.totalmem(), yield* readHasSwap)),
+         oomPolicy: supportsOomPolicy,
+       });
+       return {
+diff --git a/docs/user/background-service.md b/docs/user/background-service.md
+index fb3d3cca9a..1e8fd572fd 100644
+--- a/docs/user/background-service.md
++++ b/docs/user/background-service.md
+@@ -120,6 +120,23 @@ protection takes effect at once. The server's protection from the kernel's
+ out-of-memory killer takes effect after `t3 service restart`. `t3 service status` reports whether
+ the protection is in place, and `t3 service protect --undo` removes it.
+ 
++## Let the host set the agents' memory
++
++On Linux, T3 Code caps its agents' memory at a share of the RAM the machine has
++when an agent starts. Where something else sizes that memory, set
++`T3CODE_AGENT_SLICE_MEMORY_POLICY=host-managed` in the server's environment and
++T3 Code leaves `app-t3code-agents.slice` as it finds it:
++
++- a VM whose host plugs memory as it runs short, which starts small: a cap from
++  its RAM at boot would stop agents long before the VM's own limit;
++- an administrator's drop-in for the slice, which a T3 Code limit would
++  otherwise replace.
++
++Agents still run in their own scopes, with lower priority than the server, and
++a scope the kernel kills for memory is still reported. Limits T3 Code set
++before stay until the user manager restarts or the machine reboots. Unset, or
++`automatic`, keeps the caps.
++
+ ## Troubleshooting
+ 
+ Start with `t3 service status` on the host. It prints the log path and, on Linux,
+-- 
+2.56.0
+
