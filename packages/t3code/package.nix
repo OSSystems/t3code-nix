@@ -10,6 +10,7 @@
   makeDesktopItem,
   nodejs_26,
   pnpm_12,
+  python3,
   rustPlatform,
   stdenv,
   t3code,
@@ -97,12 +98,60 @@ let
       # Speech backends load sibling libraries relative to their own directory.
       autoPatchelfFlags = [ "--preserve-origin" ];
 
-      # `server` is the server alone, for hosts without a desktop: its production dependencies,
-      # without the workspace's other packages, the desktop app or Electron.
+      # `server` is the server alone, for hosts without a desktop: the bundled server and the
+      # packages it keeps outside the bundle, without the desktop app or Electron.
       outputs = (oldAttrs.outputs or [ "out" ]) ++ [ "server" ];
 
+      # Backport of https://github.com/NixOS/nixpkgs/pull/582628: install only the packages that
+      # upstream's release artifacts keep outside the bundles, instead of the whole pnpm tree.
+      installPhase =
+        let
+          workspaceCopy = ''
+            cp --recursive --no-preserve=mode node_modules "$out"/libexec/t3code
+            cp --recursive --no-preserve=mode apps/server/{node_modules,dist} "$out"/libexec/t3code/apps/server
+            cp --recursive --no-preserve=mode \
+              apps/desktop/{node_modules,dist-electron} \
+              "$out"/libexec/t3code/apps/desktop
+          '';
+          runtimeCopy = ''
+            node --input-type=module > runtime-dependencies.json <<'JS'
+            import fs from 'node:fs';
+            import { selectCliRuntimeExternalDependencies } from './scripts/lib/cli-external-packages.ts';
+            import { selectDesktopRuntimeExternalDependencies } from './scripts/lib/desktop-external-packages.ts';
+
+            const server = JSON.parse(fs.readFileSync('apps/server/package.json', 'utf8'));
+            const desktop = JSON.parse(fs.readFileSync('apps/desktop/package.json', 'utf8'));
+            console.log(JSON.stringify({
+              'apps/server': Object.keys(selectCliRuntimeExternalDependencies(server.dependencies)),
+              'apps/desktop': Object.keys(selectDesktopRuntimeExternalDependencies(desktop.dependencies)),
+            }));
+            JS
+            jq '{"apps/server"}' runtime-dependencies.json > server-runtime-dependencies.json
+
+            ${python3.interpreter} ${./stage-runtime.py} . "$out"/libexec/t3code runtime-dependencies.json
+            ${python3.interpreter} ${./stage-runtime.py} . "$server"/libexec/t3code server-runtime-dependencies.json
+            cp --recursive --no-preserve=mode apps/server/dist "$out"/libexec/t3code/apps/server
+            cp --recursive --no-preserve=mode apps/server/dist "$server"/libexec/t3code/apps/server
+            cp --recursive --no-preserve=mode apps/desktop/dist-electron "$out"/libexec/t3code/apps/desktop
+          '';
+        in
+        assert lib.hasInfix workspaceCopy oldAttrs.installPhase;
+        builtins.replaceStrings [ workspaceCopy ] [ runtimeCopy ] oldAttrs.installPhase;
+
+      # Strip only reads ELF files; trying every JavaScript and metadata file takes minutes.
+      stripExclude = [
+        "*.js"
+        "*.mjs"
+        "*.cjs"
+        "*.ts"
+        "*.mts"
+        "*.cts"
+        "*.map"
+        "*.json"
+        "*.md"
+      ];
+
       postInstall = (oldAttrs.postInstall or "") + ''
-        pnpm --filter t3 deploy --prod --offline "$server/libexec/t3code/apps/server"
         find "$server/libexec/t3code" -xtype l -delete
         makeWrapper ${lib.getExe nodejs_26} "$server/bin/t3" \
           --add-flags "$server/libexec/t3code/apps/server/dist/bin.mjs"
@@ -130,8 +179,9 @@ let
           "$out"/libexec/t3code/node_modules/.pnpm/@koromix+koffi-linux-${stdenv.hostPlatform.node.arch}@*/node_modules/@koromix/koffi-linux-${stdenv.hostPlatform.node.arch}/linux_${stdenv.hostPlatform.node.arch} \
           "$out"/libexec/t3code/node_modules/.pnpm/@transcribe-cpp+linux-${stdenv.hostPlatform.node.arch}-cpu-vulkan@*/node_modules/@transcribe-cpp/linux-${stdenv.hostPlatform.node.arch}-cpu-vulkan
         autoPatchelf \
-          "$server"/libexec/t3code/apps/server/node_modules/.pnpm/node-pty@*/node_modules/node-pty/prebuilds/linux-${stdenv.hostPlatform.node.arch} \
-          "$server"/libexec/t3code/apps/server/node_modules/.pnpm/@transcribe-cpp+linux-${stdenv.hostPlatform.node.arch}-cpu-vulkan@*/node_modules/@transcribe-cpp/linux-${stdenv.hostPlatform.node.arch}-cpu-vulkan
+          "$server"/libexec/t3code/node_modules/.pnpm/node-pty@*/node_modules/node-pty/prebuilds/linux-${stdenv.hostPlatform.node.arch} \
+          "$server"/libexec/t3code/node_modules/.pnpm/@koromix+koffi-linux-${stdenv.hostPlatform.node.arch}@*/node_modules/@koromix/koffi-linux-${stdenv.hostPlatform.node.arch}/linux_${stdenv.hostPlatform.node.arch} \
+          "$server"/libexec/t3code/node_modules/.pnpm/@transcribe-cpp+linux-${stdenv.hostPlatform.node.arch}-cpu-vulkan@*/node_modules/@transcribe-cpp/linux-${stdenv.hostPlatform.node.arch}-cpu-vulkan
       '';
 
       doInstallCheck = stdenv.buildPlatform.canExecute stdenv.hostPlatform;
