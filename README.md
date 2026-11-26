@@ -56,8 +56,8 @@ server, and the kernel keeps them apart.
 ```mermaid
 flowchart LR
   browser["alice's browser or app"] -- "HTTPS" --> nginx
-  nginx -- "alice.t3.example.com" --> a["t3code-alice.service<br/>User=alice, 127.0.0.1:40001"]
-  nginx -- "bob.t3.example.com" --> b["t3code-bob.service<br/>User=bob, 127.0.0.1:40002"]
+  nginx -- "alice.t3.example.com" --> a["t3code-alice.service<br/>alice's user manager, 127.0.0.1:40001"]
+  nginx -- "bob.t3.example.com" --> b["t3code-bob.service<br/>bob's user manager, 127.0.0.1:40002"]
   a --> ha["/home/alice (0700)<br/>.t3, repos, worktrees"]
   b --> hb["/home/bob (0700)"]
 ```
@@ -83,6 +83,13 @@ flowchart LR
 }
 ```
 
+Each server is a unit of its user's systemd manager, which lingers so that it
+starts at boot. T3 Code starts each agent in a scope of that manager, with
+memory limits and its own OOM handling, as upstream's `t3 service install` does.
+Thus the user must be able to read their `environmentFile`; with sops-nix, set
+the secret's `owner` to the user. Logs are in
+`journalctl _SYSTEMD_USER_UNIT=t3code-<user>.service`.
+
 Each user is served at `<user>.<domain>`; T3 Code does not work under a
 subpath. To let someone in, an admin creates a one-time link and sends it:
 
@@ -93,7 +100,7 @@ sudo t3os-pair alice           # add --ttl 1h for a longer-lived link
 Opening the link signs that browser in. A new device needs a new link.
 
 `nix flake check` runs `checks/t3code-os.nix`, a VM test of two users pairing
-over HTTPS and failing to reach each other.
+over HTTPS and failing to reach each other, with agents in their own scopes.
 
 ## Packages
 

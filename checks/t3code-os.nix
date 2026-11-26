@@ -65,7 +65,9 @@ in
     start_all()
 
     for user, port in ${builtins.toJSON users}.items():
-        server.wait_for_unit(f"t3code-{user}.service")
+        uid = server.succeed(f"id -u {user}").strip()
+        server.wait_for_unit(f"user@{uid}.service")
+        server.wait_for_unit(f"t3code-{user}.service", user)
         server.wait_for_open_port(port)
     server.wait_for_unit("nginx.service")
     client.wait_for_unit("multi-user.target")
@@ -77,9 +79,23 @@ in
 
     with subtest("each server runs as its own user with its own environment"):
         for user in ${builtins.toJSON (lib.attrNames users)}:
-            pid = server.succeed(f"systemctl show -P MainPID t3code-{user}.service").strip()
+            pid = server.succeed(f"systemctl --user -M {user}@ show -P MainPID t3code-{user}.service").strip()
             assert server.succeed(f"stat -c %U /proc/{pid}").strip() == user
             server.succeed(f"tr '\\0' '\\n' < /proc/{pid}/environ | grep -qx T3OS_TEST_USER={user}")
+
+    with subtest("agents run in scopes of the user's systemd manager"):
+        server.succeed("runuser -u alice -- mkdir /home/alice/project")
+        # The CLI fails while the server is still starting, after it opens its port.
+        server.wait_until_succeeds(
+            "runuser -u alice -- sh -c 'cd && t3 project add project; "
+            "t3 thread start --provider codex --model gpt-6-astra project hello'"
+        )
+        server.wait_until_succeeds(
+            "journalctl _SYSTEMD_USER_UNIT=t3code-alice.service | grep 'Agent scopes are on'"
+        )
+        server.wait_until_succeeds(
+            "grep -q 't3code-codex-.*\\.scope' /proc/$(pgrep -u alice -f 'codex app-server' | head -1)/cgroup"
+        )
 
     def url(user):
         return f"https://{user}.${domain}"

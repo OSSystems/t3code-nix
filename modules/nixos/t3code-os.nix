@@ -16,6 +16,8 @@ let
 
   cfg = config.services.t3code-os;
 
+  externalUsers = lib.attrNames (lib.filterAttrs (_: u: !u.createUser) cfg.users);
+
   hostFor = name: "${name}.${cfg.domain}";
 
   pair = pkgs.writeShellApplication {
@@ -61,7 +63,7 @@ let
         createUser = mkOption {
           type = types.bool;
           default = true;
-          description = "Declare the Unix account. Disable when accounts come from elsewhere, such as LDAP.";
+          description = "Declare the Unix account. Disable when accounts come from elsewhere, such as LDAP. Either way, the account lingers, so its server starts at boot.";
         };
 
         environment = mkOption {
@@ -76,7 +78,7 @@ let
         environmentFile = mkOption {
           type = types.nullOr types.path;
           default = null;
-          description = "File of `KEY=value` lines, such as an API key, read by systemd at start and kept out of the Nix store.";
+          description = "File of `KEY=value` lines, such as an API key, kept out of the Nix store. The user's systemd manager reads it at start, so the user must be able to read it.";
         };
 
         extraPackages = mkOption {
@@ -157,16 +159,37 @@ in
         isNormalUser = true;
         inherit (u) home;
         homeMode = "700";
+        linger = true;
       }
     ) cfg.users;
 
-    systemd.services = lib.mapAttrs' (
+    # users.users.<name>.linger would declare accounts that come from elsewhere, such as LDAP.
+    systemd.services.t3code-os-linger = mkIf (externalUsers != [ ]) {
+      description = "Start the user managers of T3 Code OS users at boot";
+      wantedBy = [ "multi-user.target" ];
+      after = [
+        "systemd-logind.service"
+        "nss-user-lookup.target"
+      ];
+      requires = [ "systemd-logind.service" ];
+      serviceConfig = {
+        Type = "oneshot";
+        RemainAfterExit = true;
+        ExecStart = "${config.systemd.package}/bin/loginctl enable-linger ${lib.escapeShellArgs externalUsers}";
+      };
+    };
+
+    # T3 Code starts each agent in a scope of the user's systemd manager, which a system
+    # service cannot reach. The settings follow upstream's boot service in
+    # apps/server/src/cloud/bootService.ts.
+    systemd.user.services = lib.mapAttrs' (
       name: u:
       lib.nameValuePair "t3code-${name}" {
         description = "T3 Code server for ${name}";
-        wantedBy = [ "multi-user.target" ];
-        after = [ "network-online.target" ];
-        wants = [ "network-online.target" ];
+        wantedBy = [ "default.target" ];
+        startLimitIntervalSec = 300;
+        startLimitBurst = 5;
+        unitConfig.ConditionUser = name;
         path = [
           cfg.package
           config.nix.package
@@ -177,18 +200,22 @@ in
         ++ cfg.extraPackages
         ++ u.extraPackages;
         environment = {
-          HOME = u.home;
           T3CODE_HOME = "${u.home}/.t3";
         }
         // u.environment;
         serviceConfig = {
-          User = name;
           WorkingDirectory = u.home;
           ExecStart = "${lib.getExe' cfg.package "t3"} serve --host 127.0.0.1 --port ${toString u.port}";
           EnvironmentFile = lib.optional (u.environmentFile != null) u.environmentFile;
-          Restart = "on-failure";
+          Restart = "always";
           RestartSec = 5;
           KillMode = "mixed";
+          OOMPolicy = "continue";
+          CPUWeight = 1000;
+          IOWeight = 1000;
+          MemoryLow = "1536M";
+          OOMScoreAdjust = 100;
+          ManagedOOMPreference = "avoid";
         };
       }
     ) cfg.users;
