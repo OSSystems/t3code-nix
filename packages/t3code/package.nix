@@ -18,7 +18,7 @@
 }:
 
 let
-  version = "0.1.11";
+  version = "0.1.12";
 
   browser = chromium;
   browserProfileName = "t3-nix-${baseNameOf (toString browser.browser)}";
@@ -27,7 +27,7 @@ let
     owner = "pingdotgg";
     repo = "t3code";
     tag = "v${version}";
-    hash = "sha256-oI8gyTWFgtTmVK+0cVQaEcfO8EzxUUOW5s8JFG/z/U8=";
+    hash = "sha256-BeeKQGuTSeOejhzIFzpFLhVjuVRIc7eToWzGrHGNJqc=";
   };
 
   patches = [
@@ -182,7 +182,7 @@ let
           pnpmWorkspaces
           ;
         fetcherVersion = 4;
-        hash = "sha256-u34YhuSMQj178JiRf/bf+VQYZfBUUH9UtCcJODPzBFQ=";
+        hash = "sha256-6dML9+jpxFIQDQ+PrOy1i6solqJJLT62sDSDQ/aozK4=";
       };
 
       passthru = (oldAttrs.passthru or { }) // {
@@ -202,7 +202,7 @@ let
     cargoDeps = rustPlatform.fetchCargoVendor {
       inherit src;
       sourceRoot = "${src.name}/native/resource-monitor";
-      hash = "sha256-5cmG2daM1bVOA23gjjoalbx0fEL1hmqV6WZov0sUZp8=";
+      hash = "sha256-deTy3FFcOwhxZnEbWDXFGVFFoKUex434ADJQtchVzbs=";
     };
   };
 
